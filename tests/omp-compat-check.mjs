@@ -14,6 +14,7 @@ writeFileSync(join(agentDir, "multi-pass.json"), JSON.stringify({
 
 const commands = new Map();
 const providers = new Map();
+const eventHandlers = new Map();
 const noop = () => {};
 const pi = new Proxy({}, {
 	get(_target, prop) {
@@ -23,7 +24,7 @@ const pi = new Proxy({}, {
 			else providers.set(name, config);
 		};
 		if (prop === "unregisterProvider") return (name) => providers.delete(name);
-		if (prop === "on") return noop;
+		if (prop === "on") return (name, handler) => eventHandlers.set(name, handler);
 		return noop;
 	},
 });
@@ -205,5 +206,31 @@ notes.length = 0;
 await commands.get("subs").handler("status", hostStoreCtx);
 assert.match(JSON.stringify(notes), /logged in \(api key\)/, JSON.stringify(notes));
 assert.doesNotMatch(JSON.stringify(notes), /hasAuth is not a function/);
+
+// Session start must copy auth.json-only logins into the host database.
+writeFileSync(join(agentDir, "auth.json"), JSON.stringify({
+	"kilo-1": {
+		type: "oauth",
+		access: "access-token",
+		refresh: "refresh-token",
+		expires: Date.now() + 3_600_000,
+	},
+	"minimax-2": { type: "api_key", key: "api-key-token" },
+}));
+const migrated = new Map();
+const migrationStore = {
+	get: (provider) => migrated.get(provider),
+	has: (provider) => migrated.has(provider),
+	set: (provider, credential) => migrated.set(provider, credential),
+	upsert: (provider, credential) => migrated.set(provider, credential),
+	upsertOAuth: (provider, credential) => migrated.set(provider, credential),
+};
+const sessionCtx = {
+	...ctx,
+	modelRegistry: { ...ctx.modelRegistry, authStorage: { credentials: migrationStore } },
+};
+await eventHandlers.get("session_start")({}, sessionCtx);
+assert.equal(migrated.get("kilo-1")?.access, "access-token", "OAuth login migrated");
+assert.equal(migrated.get("minimax-2")?.key, "api-key-token", "API key migrated");
 
 console.log("omp compatibility checks passed");
