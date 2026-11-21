@@ -107,6 +107,51 @@ type GeminiCredentials = OAuthCredentials & { projectId?: string };
 /** Vendored gemini-app catalog is plain JS; its objects match pi-ai's Model. */
 const geminiAppModels = GEMINI_APP_MODELS as unknown as Model<Api>[];
 
+/** Cline account catalog (starter credits): frontier models served by the same API. */
+const clineHeaders = { "HTTP-Referer": "https://cline.bot", "X-Title": "Cline" };
+function clineModel(
+	id: string,
+	name: string,
+	contextWindow = 200_000,
+	maxTokens = 32_768,
+	options: { reasoning?: boolean; vision?: boolean } = {},
+): Model<Api> {
+	return {
+		id,
+		name,
+		api: "openai-completions",
+		provider: "cline",
+		baseUrl: `${resolveApiBase()}/api/v1`,
+		reasoning: options.reasoning ?? true,
+		input: options.vision ? ["text", "image"] : ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow,
+		maxTokens,
+		headers: clineHeaders,
+		compat: { supportsDeveloperRole: false },
+	};
+}
+
+const clineModels: Model<Api>[] = [
+	clineModel("z-ai/glm-5.2", "GLM 5.2", 1_040_000, 128_000),
+	clineModel("x-ai/grok-4.5", "Grok 4.5", 500_000, 500_000, { vision: true }),
+	clineModel("openai/gpt-5.6-sol", "GPT-5.6 Sol", 1_050_000, 128_000, { vision: true }),
+	clineModel("moonshotai/kimi-k3", "Kimi K3", 1_048_576, 1_048_576, { vision: true }),
+	clineModel("anthropic/claude-opus-4.8", "Claude Opus 4.8", 1_000_000, 128_000, { vision: true }),
+	clineModel("cline-free/deepseek-v4.1-flash", "DeepSeek V4.1 Flash (Free)", 200_000, 32_768),
+	clineModel("cline-free/mimo-v2.6-flash", "MiMo V2.6 Flash (Free)", 200_000, 32_768),
+	clineModel("cline-free/muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor (Free)", 200_000, 32_768),
+	clineModel("stealth/space-bunny-alpha", "Space Bunny Alpha (Free)", 200_000, 32_768),
+	clineModel("openrouter/free", "Free Models Router", 200_000, 32_768, { vision: true }),
+	clineModel("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash", 1_048_576, 65_536),
+	clineModel("tencent/hy3:free", "Tencent Hy3 (Free)", 262_144, 262_144),
+	clineModel("stepfun/step-3.7-flash", "Step 3.7 Flash", 256_000, 256_000, { vision: true }),
+	clineModel("poolside/laguna-m.1:free", "Laguna M.1 (Free)", 262_144, 32_768),
+	clineModel("google/gemma-4-31b-it:free", "Gemma 4 31B (Free)", 262_144, 32_768, { vision: true }),
+	clineModel("nvidia/nemotron-3-ultra-550b-a55b:free", "Nemotron 3 Ultra (Free)", 1_000_000, 65_536),
+	clineModel("minimax/minimax-m3", "MiniMax M3", 1_048_576, 65_536, { vision: true }),
+];
+
 /** ClinePass catalog lacks transport fields; add the OpenAI-compatible API. */
 const clinepassModels = CLINEPASS_MODELS.map((model) => ({
 	...model,
@@ -410,6 +455,24 @@ const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
 		},
 		buildStreamSimple() {
 			return createGeminiStreamHandler({ createAssistantMessageEventStream }).streamSimple;
+		},
+	},
+
+	// Cline account (starter credits): same WorkOS token as the CLI, full frontier
+	// catalog. OmniRoute exposes this as a separate `cline` provider; keep
+	// `clinepass` for the curated subscription roster.
+	cline: {
+		displayName: "Cline",
+		baseUrl: `${resolveApiBase()}/api/v1`,
+		models: clineModels,
+		buildOAuth(index: number) {
+			return {
+				name: `Cline #${index}`,
+				isSubscription: true,
+				login: (callbacks: OAuthLoginCallbacks) => clinepassLogin(callbacks),
+				refreshToken: (credentials: OAuthCredentials) => clinepassRefreshToken(credentials),
+				getApiKey: (credentials: OAuthCredentials) => clinepassGetApiKey(credentials),
+			};
 		},
 	},
 
@@ -4913,10 +4976,7 @@ async function handleSubsAdd(pi: ExtensionAPI, ctx: ExtensionCommandContext): Pr
 	);
 
 	if (loginNow) {
-		ctx.ui.notify(
-			`Use /login and select "${subscriptionLoginName(entry)}" to authenticate.`,
-			"info",
-		);
+		await loginSubscription(ctx, entry);
 	} else {
 		ctx.ui.notify(`Added ${subDisplayName(entry)}. Use /subs login to authenticate.`, "info");
 	}
@@ -4955,6 +5015,81 @@ async function handleSubsRemove(
 	if (!entry) return;
 
 	return removeSubscriptionEntry(pi, ctx, config, entry, poolManager);
+}
+
+/**
+ * Run a subscription's OAuth login directly from the /subs UI and persist the
+ * credential. The host exposes no programmatic /login entry point, so build
+ * the legacy callback surface from ctx.ui and write auth.json ourselves.
+ */
+async function loginSubscription(ctx: ExtensionCommandContext, entry: SubEntry): Promise<boolean> {
+	const provider = entry.provider;
+	const template = PROVIDER_TEMPLATES[provider];
+	const oauth = template?.buildOAuth?.(entry.index);
+	if (!oauth) {
+		ctx.ui.notify(
+			`${subDisplayName(entry)} uses an API key. Set ${template?.apiKey ?? "its env var"} and restart.`,
+			"info",
+		);
+		return false;
+	}
+
+	const controller = new AbortController();
+	const ask = async (message: string, placeholder?: string): Promise<string> => {
+		const answer = await ctx.ui.input(message, placeholder);
+		if (answer === undefined) {
+			controller.abort();
+			throw new Error("Login cancelled");
+		}
+		return answer;
+	};
+	const callbacks: OAuthLoginCallbacks = {
+		signal: controller.signal,
+		onAuth: (info) => {
+			const suffix = info.instructions ? `\n${info.instructions}` : "";
+			ctx.ui.notify(`Authorize ${subDisplayName(entry)}: ${info.url}${suffix}`, "info");
+		},
+		onDeviceCode: (info) => {
+			ctx.ui.notify(
+				`Open ${info.verificationUri} and enter code ${info.userCode}`,
+				"info",
+			);
+		},
+		onPrompt: (prompt) => ask(prompt.message, prompt.placeholder),
+		onManualCodeInput: () => ask("Paste the authorization code"),
+		onSelect: async (prompt) => {
+			const labels = prompt.options.map((option) => option.label);
+			const picked = await ctx.ui.select(prompt.message, labels);
+			if (picked === undefined) {
+				controller.abort();
+				throw new Error("Login cancelled");
+			}
+			return prompt.options[labels.indexOf(picked)]?.id;
+		},
+		onProgress: (message) => ctx.ui.setStatus("multi-pass-login", message),
+	};
+
+	try {
+		ctx.ui.setStatus("multi-pass-login", `Logging in ${subDisplayName(entry)}...`);
+		const credentials = await oauth.login(callbacks);
+		const name = subProviderName(entry);
+		await withAuthFile((stored) => {
+			stored[name] = { type: "oauth", ...credentials };
+			return { value: undefined, changed: true };
+		});
+		providersRequiringReauthentication.delete(name);
+		ctx.modelRegistry.refresh();
+		ctx.ui.notify(`Logged in ${subDisplayName(entry)}.`, "info");
+		return true;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (!controller.signal.aborted) {
+			ctx.ui.notify(`Login failed for ${subDisplayName(entry)}: ${message}`, "error");
+		}
+		return false;
+	} finally {
+		ctx.ui.setStatus("multi-pass-login", undefined);
+	}
 }
 
 async function handleSubsLogin(ctx: ExtensionCommandContext): Promise<void> {
@@ -5014,10 +5149,7 @@ async function handleSubsLogin(ctx: ExtensionCommandContext): Promise<void> {
 		providersRequiringReauthentication.delete(selectedProviderName);
 	}
 
-	ctx.ui.notify(
-		`Use /login and select "${subscriptionLoginName(entry)}" to authenticate.`,
-		"info",
-	);
+	await loginSubscription(ctx, entry);
 }
 
 async function handleSubsLogout(ctx: ExtensionCommandContext): Promise<void> {

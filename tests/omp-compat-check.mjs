@@ -81,6 +81,7 @@ writeFileSync(join(agentDir, "multi-pass.json"), JSON.stringify({
 	subscriptions: [
 		{ provider: "gemini-app", index: 1, label: "gem" },
 		{ provider: "clinepass", index: 1, label: "cline" },
+		{ provider: "cline", index: 1, label: "credits" },
 	],
 	pools: [],
 	chains: [],
@@ -110,6 +111,15 @@ assert.equal(clineReg.models[0].id, "cline-pass/glm-5.3");
 assert.equal(clineReg.models[0].compat.supportsDeveloperRole, false);
 assert.equal(typeof clineReg.oauth.login, "function");
 assert.equal(typeof clineReg.oauth.refreshToken, "function");
+
+const clineAccount = providers.get("cline-1");
+assert.ok(clineAccount, "cline-1 registered");
+assert.equal(clineAccount.baseUrl, "https://api.cline.bot/api/v1");
+assert.equal(clineAccount.api, "openai-completions");
+assert.equal(clineAccount.models.length, 17);
+assert.ok(clineAccount.models.some((m) => m.id === "anthropic/claude-opus-4.8"));
+assert.equal(clineAccount.models[0].headers["X-Title"], "Cline");
+assert.equal(typeof clineAccount.oauth.login, "function");
 
 // Bundled Gemini App extension registers the base provider and quota command.
 const gemini = await import("../vendor/gemini-app2api/extensions/pi/index.js");

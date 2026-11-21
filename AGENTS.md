@@ -4,7 +4,7 @@
 
 `omp-multi-pass` is an extension for **pi**, **pi-bolt**, and **oh-my-pi (omp)**. It manages
 multiple OAuth subscriptions per provider (Anthropic, Codex, Copilot, Google, Antigravity,
-MiniMax, Gemini App, ClinePass), plus rotation pools, fallback chains, model presets,
+MiniMax, Gemini App, ClinePass, Cline), plus rotation pools, fallback chains, model presets,
 project restrictions, limits checks, routing traces, and offline OAuth sharing. It also
 bundles the Command Code provider (API-key only).
 
@@ -40,7 +40,8 @@ host factory -> load config -> register subscription providers -> runtime routin
   to expose Gemini App as normal subscriptions.
 - `vendor/clinepass/src/index.ts` registers the base `clinepass` provider with Cline CLI
   WorkOS credential reuse or a static API key. `extensions/multi-sub.ts` imports its
-  catalog and OAuth functions for `clinepass-N` subscriptions.
+  catalog and OAuth functions for `clinepass-N` subscriptions. The same OAuth backs the
+  `cline` account template (17 frontier models, OmniRoute-style).
 - `vendor/commandcode/index.ts` registers `commandcode` with a custom NDJSON
   `/alpha/generate` stream. It is API-key only and is not a subscription template.
 

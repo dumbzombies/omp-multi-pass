@@ -66,6 +66,7 @@ multi-subscription manager and the bundled Gemini App provider.
 - **Labels**: Tag subscriptions (e.g. "work", "personal")
 - **Gemini App provider**: Native HTTP/2 Gemini App models, `/login gemini-app`, `/gemini-quota`, and multi-account Gemini App subscriptions
 - **ClinePass provider + subscriptions**: Reuses Cline CLI WorkOS credentials or a static API key; extra accounts register as `clinepass-1`, `clinepass-2`, ...
+- **Cline account provider**: Standard Cline login/credits, 17 frontier models (GLM 5.2, Grok 4.5, GPT-5.6 Sol, Kimi K3, Claude Opus 4.8, MiniMax M3, free tier), `cline-1`, `cline-2`, ...
 - **Command Code provider**: Bundled `/alpha/generate` transport for 25 OSS models; API-key only (`COMMANDCODE_API_KEY`)
 - **Live model catalogs**: Subscription providers mirror the base provider's
   merged model catalog (static builtin + remote overlay from
@@ -100,6 +101,20 @@ native wire format). They are not selectable models here.
 the signed-in account. This is unofficial interoperability software, not
 affiliated with Google. Sign in only with an account whose terms you accept.
 
+### Cline account provider (`cline`)
+
+Works like OmniRoute's `cline` provider: sign in with a normal Cline account
+(starter credits or paid) and use the frontier catalog on the same
+`https://api.cline.bot/api/v1` endpoint.
+
+- Auth: Cline CLI WorkOS token reuse or a direct Cline API key.
+- Models: 17 real models, including `z-ai/glm-5.2`, `x-ai/grok-4.5`,
+  `openai/gpt-5.6-sol`, `moonshotai/kimi-k3`,
+  `anthropic/claude-opus-4.8`, `minimax/minimax-m3`, plus `cline-free/*`
+  and other free entries.
+- Extra accounts: `/subs add cline` registers `cline-1`, `cline-2`, ...
+- Distinct from `clinepass`, which stays on the curated ClinePass roster.
+
 ### ClinePass provider and subscriptions
 
 Bundled from `pi-clinepass-provider` 1.7.0. Base provider id: `clinepass`.
@@ -121,6 +136,9 @@ Bundled from `pi-commandcode-provider` 0.1.0. Provider id: `commandcode`.
 
 - API key: `COMMANDCODE_API_KEY` (`user_...` token from
   `https://commandcode.ai/settings/billing`).
+- Works with the $1/month **Go** plan: the extension uses
+  `/alpha/generate`, which is not plan-gated, not the Provider-plan
+  `/provider/v1/*` endpoints.
 - Transport: native `POST https://api.commandcode.ai/alpha/generate`
   (newline-delimited JSON, not SSE).
 - Models: 25 OSS roster entries (DeepSeek V4, Kimi K3/K2.7, GLM-5.x,
