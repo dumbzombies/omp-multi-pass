@@ -8,7 +8,9 @@ App, ClinePass, Cline accounts, Command Code, and Kilo from one package.
 ## Progress
 
 - Live repo: https://github.com/dumbzombies/omp-multi-pass, branch `main`.
-- Version `1.3.1`; local source verified, package reinstall pending.
+- Version `1.3.1`, commit `311f463`, pushed to `main`.
+- Installed/linked locally with `omp install . --force`; `omp plugin list`
+  reports `omp-multi-pass@1.3.1` and the installed tree resolves to this repo.
 - `/subs` menus use native `ctx.ui.select`; every action is wrapped so a failure
   notifies instead of crashing. The top menu shows account/login counts and the
   current model, with Settings and Share & import submenus.
@@ -22,6 +24,7 @@ App, ClinePass, Cline accounts, Command Code, and Kilo from one package.
 - Tests updated for omp 18.12.6: removed `--offline`/`--no-context-files`,
   fixture extensions passed with `--extension`; 19/19 checks pass.
 - Kilo integration unchanged from 1.3.0.
+- Installed plugin load-tested in omp RPC: zero `extension_error`.
 
 ## Blockers
 
@@ -31,6 +34,6 @@ None in code. The previously stored `kilo-2` credential is no longer in omp's
 
 ## Next actions
 
-- Commit, push, run `omp install git:github.com/dumbzombies/omp-multi-pass`,
-  restore the Kilo subscription if desired, and restart omp.
+- Restore the Kilo subscription with `/subs add`, then restart omp to load
+  the current extension build.
 - Live Cline/ClinePass/Kilo OAuth model calls still need real accounts.

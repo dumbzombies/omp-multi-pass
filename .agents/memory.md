@@ -197,3 +197,10 @@
 - omp 18.12.6 removed `--offline` and `--no-context-files`; extension fixtures
   must be passed with `--extension`, not positionally. Test fixtures capture
   quiet notifications to include the last action error in assertion output.
+
+## 2026-11-21 — omp install target syntax
+
+- omp 18.12.6 no longer accepts `git:github.com/...` install targets; it parses
+  the string as an SSH host (`ssh://git@git/...`) and fails. Install from the
+  local checkout with `omp install . --force`, which links the repo and reports
+  its `package.json` version.
