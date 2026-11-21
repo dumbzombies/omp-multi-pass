@@ -3,20 +3,21 @@
 ## Goal
 
 Maintain `omp-multi-pass` on pi, pi-bolt, and omp: multi-account subscriptions, Gemini
-App, ClinePass, and Command Code from one package.
+App, ClinePass, Cline accounts, and Command Code from one package.
 
 ## Progress
 
 - Live repo: https://github.com/dumbzombies/omp-multi-pass, branch `main`.
-- Version `1.1.0`, commit `0d517a5`; installed in omp and verified.
-- `clinepass`: multi-subscription template (`clinepass-1` ...), WorkOS CLI reuse or static
-  API key, 15 curated models.
-- `commandcode`: bundled base provider, `COMMANDCODE_API_KEY`, native `/alpha/generate`
-  NDJSON stream, 25 OSS models. No OAuth, no multi-account.
-- Package registers four extensions: multi-sub, gemini-app, clinepass, commandcode.
-- Vendored ClinePass relative imports converted `.js` -> `.ts` for direct TS loading.
-- Verification: 19/19 checks pass; omp and pi-bolt load all extensions with zero
-  `extension_error`; installed 1.1.0 loads and `/subs status` succeeds.
+- Version `1.2.0`, commit `557568f`; installed in omp.
+- `/subs add` and `/subs login` now complete OAuth in place, write `auth.json`, refresh
+  models. No `/login` detour.
+- `cline`: Cline account/credits provider, 17 frontier/free models, `cline-N`
+  subscriptions, same WorkOS/API-key auth as ClinePass.
+- `clinepass`: curated 15-model ClinePass roster, `clinepass-N` subscriptions.
+- `commandcode`: base provider, `COMMANDCODE_API_KEY`; Go $1 plan works via
+  `/alpha/generate`.
+- Verification: 19/19 checks pass; omp + pi-bolt load all four extensions with zero
+  `extension_error`; installed 1.2.0.
 
 ## Blockers
 
@@ -24,6 +25,5 @@ None.
 
 ## Next actions
 
-- Live ClinePass login (`/login clinepass` or WorkOS reuse) and a real Cline request are
-  not exercised (no account); same for Command Code API-key live calls.
-- Restart omp to load the updated extension in a running session.
+- Live Cline/ClinePass OAuth and real model calls still need a real account; not run.
+- Restart omp to load 1.2.0 in a running session.

@@ -137,3 +137,21 @@
   `vendor/commandcode/index.ts`.
 - Live omp RPC with installed plugins: exit 0, zero `extension_error`,
   `/subs status` success.
+
+## 2026-11-21 — In-menu login and Cline account provider (1.2.0)
+
+- `/subs add` and `/subs login` previously told users to leave and run `/login`. Fixed by
+  building legacy `OAuthLoginCallbacks` from `ctx.ui` and calling
+  `template.buildOAuth(index).login(...)` directly, then writing
+  `auth.json[<provider>-<index>] = { type: "oauth", ...credentials }` under the auth lock
+  and calling `ctx.modelRegistry.refresh()`.
+- `ctx.ui` has no browser-open action; OAuth URLs/device codes are shown through
+  `ctx.ui.notify`, prompts through `input`/`select`.
+- Added `cline` provider template matching OmniRoute's `cline` provider:
+  base `https://api.cline.bot/api/v1`, same Cline WorkOS/API-key OAuth as clinepass,
+  17 curated frontier/free models, `cline-N` subscriptions. `clinepass` stays as the
+  curated 15-model subscription roster.
+- Command Code Go plan ($1/month) works unchanged through the bundled provider because
+  it uses `/alpha/generate`, not the Provider-plan `/provider/v1/*` generation endpoints.
+- Version 1.2.0; installed in omp. Verification: 19/19 tests, omp and pi-bolt load all
+  four extensions with zero `extension_error`, `/subs status` success.
