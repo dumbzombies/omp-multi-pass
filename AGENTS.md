@@ -32,7 +32,7 @@ for local Node tests, link them from the omp plugin node_modules if unavailable.
 ## Conventions
 
 - Global config: `~/.omp/agent/multi-pass.json`; credentials `~/.omp/agent/auth.json`.
-- Project config: `.omp/multi-pass.json`, `.pi/multi-pass.json` fallback.
+- Project config: host-native dir first (`.omp`, `.pi`), other one fallback.
 - Never trust `modelRegistry.authStorage` without checking `hasAuth`/`get`; omp exposes
   no `authStorage` and older objects have no `hasAuth`.
 - Extension-provided models (gemini-app) are absent from the pi-ai builtin catalog;

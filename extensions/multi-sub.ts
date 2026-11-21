@@ -51,7 +51,7 @@ import { configuredModelOverride, matchesCatalogModel, mergeCatalog, minimaxBase
 import { createGeminiOAuthAuth } from "../vendor/gemini-app2api/extensions/pi/auth.js";
 import { MODELS as GEMINI_APP_MODELS, filterGeminiModels } from "../vendor/gemini-app2api/extensions/pi/provider.js";
 import { createGeminiStreamHandler } from "../vendor/gemini-app2api/extensions/pi/stream.js";
-import { dirname, isAbsolute, join } from "path";
+import { basename, dirname, isAbsolute, join } from "path";
 import { pathToFileURL } from "url";
 import type {
 	ExtensionAPI,
@@ -2550,11 +2550,15 @@ function globalConfigPath(): string {
 }
 
 function projectConfigPath(cwd: string): string {
-	// oh-my-pi uses .omp/; keep reading .pi/ so an existing project config
-	// keeps working when a repo is opened in omp.
-	const ompPath = join(cwd, ".omp", "multi-pass.json");
-	if (existsSync(ompPath)) return ompPath;
-	return join(cwd, ".pi", "multi-pass.json");
+	// Prefer the current host's directory, then the other one so a repo can be
+	// shared between pi/pi-bolt (.pi) and omp (.omp).
+	const hostDir = basename(dirname(getAgentDir())) === ".omp" ? ".omp" : ".pi";
+	const fallback = hostDir === ".omp" ? ".pi" : ".omp";
+	for (const dir of [hostDir, fallback]) {
+		const candidate = join(cwd, dir, "multi-pass.json");
+		if (existsSync(candidate)) return candidate;
+	}
+	return join(cwd, hostDir, "multi-pass.json");
 }
 
 function emptyMultiPassConfig(): MultiPassConfig {

@@ -87,3 +87,21 @@
   non-confidential installed-app credential, the literal was split into two array parts
   joined at runtime (`DEFAULT_CLIENT_SECRET`); value unchanged. Do not merge it back into
   one literal or pushes will be blocked again.
+
+## 2026-11-21 — Triple host compatibility (pi, pi-bolt, omp)
+
+- pi 1.5.2 and pi-bolt 1.2.1 share the Pi extension API. omp 19.0.1 is the
+  divergent surface and every known difference is handled at runtime.
+- Verified end-to-end with `--extension extensions/multi-sub.ts --extension
+  vendor/gemini-app2api/extensions/pi/index.js`: both load and `/subs status`
+  succeeds under pi-bolt and the pi 1.5.2 Node CLI, zero `extension_error`.
+- Model test config must be written in both formats: pi/pi-bolt read
+  `models.json`; omp reads `models.yml`. `tests/fixtures/test-model.mjs` writes both.
+- Project config precedence is host-native: `getAgentDir()` parent `.omp` -> prefer
+  `.omp/`, otherwise `.pi/`; the other directory is the fallback.
+- Remaining non-parity is host capability, not extension bugs: omp has no
+  auth-status/runtime-logout or provider-config introspection, and does not
+  recompose extension models on `refresh()`. The live-catalog fallback is
+  behaviorally close but cannot be byte-identical to pi's registration-layer
+  detection. "110%" identical semantics across all three is not possible where
+  the host API does not exist; functional compatibility is.

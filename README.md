@@ -21,27 +21,33 @@
 
 ## Install
 
+Works on pi, pi-bolt, and omp.
+
 ```bash
+# omp
 omp install git:github.com/dumbzombies/omp-multi-pass
+
+# pi / pi-bolt
+pi install git:github.com/dumbzombies/omp-multi-pass
 ```
 
 Or from a local clone:
 
 ```bash
-omp install /path/to/omp-multi-pass
+omp install /path/to/omp-multi-pass   # or: pi install /path/to/omp-multi-pass
 ```
 
-Restart omp after installing. The package registers two extensions: the
+Restart the host after installing. The package registers two extensions: the
 multi-subscription manager and the bundled Gemini App provider.
 
-## omp differences
+## Host differences
 
-- Global config: `~/.omp/agent/multi-pass.json`
-- Project config: `.omp/multi-pass.json`, with `.pi/multi-pass.json` read as a fallback
-- Credentials: `~/.omp/agent/auth.json`
+- Global config on omp: `~/.omp/agent/multi-pass.json`; on pi / pi-bolt: `~/.pi/agent/multi-pass.json`
+- Project config: host-native directory first (`.omp/` on omp, `.pi/` on pi/pi-bolt), other one as fallback
+- Credentials: `auth.json` in the same host agent directory
 - Auth lookup tolerates hosts that expose `modelRegistry.authStorage` without
   `hasAuth`; this fixes the `authStorage.hasAuth is not a function` crash in `/subs`
-- Selector scripts and presets resolve from `~/.omp/agent/`
+- Selector scripts and presets resolve from the host agent directory
 
 ## Features
 
@@ -247,7 +253,7 @@ cd ~/side-project
 
 ### Project config file
 
-`.omp/multi-pass.json`:
+`.omp/multi-pass.json` on omp, `.pi/multi-pass.json` on pi / pi-bolt (each host reads the other's file as a fallback):
 
 ```json
 {

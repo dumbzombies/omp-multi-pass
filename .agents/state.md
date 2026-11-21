@@ -2,29 +2,28 @@
 
 ## Goal
 
-Maintain the published oh-my-pi fork (`omp-multi-pass`) with the `authStorage.hasAuth`
-crash fixed and the Gemini App provider bundled as a normal and extra subscription.
+Keep `omp-multi-pass` working on pi, pi-bolt, and omp from one codebase, with the
+`authStorage.hasAuth` crash fixed and the Gemini App provider bundled.
 
 ## Progress
 
 - Live: https://github.com/dumbzombies/omp-multi-pass, public, MIT, branch `main`.
-- omp metadata, ESM package, `.omp/` config paths, `.pi/` project fallback.
-- Auth compatibility: duck-typed `authStorage`, direct `auth.json` reads, logout fallback.
+- Runtime capability detection covers pi/pi-bolt and omp auth, registration, and
+  model-refresh differences.
+- Project config is host-native: `.omp/` for omp, `.pi/` for pi/pi-bolt, other dir fallback.
 - Vendored pi-gemini-app 0.1.8 with LICENSE/DISCLAIMER and omp transcript fallbacks.
 - `gemini-app` subscription template with native models, OAuth, tier filter, stream.
-- Subscription catalogs merge `models-store.json` at registration; catalog filtering works
-  without omp's missing registration introspection.
-- RPC tests run on `omp` with a dummy model fixture.
-- Verification: all 19 `tests/*-check.mjs` pass; both extensions load in omp RPC with no
-  `extension_error`.
-- GitHub push protection workaround documented in `memory.md`: public OAuth client secret
-  is split into two literals, not merged.
+- Test fixture writes both `models.json` (pi/pi-bolt) and `models.yml` (omp).
+- Verification: all 19 checks pass under omp; both extensions load and `/subs status`
+  succeeds under pi-bolt and pi 1.5.2 with zero `extension_error`.
 
 ## Blockers
 
-None.
+None. True byte-identical parity with omp is limited by missing host APIs
+(auth status, provider-config introspection, model refresh composition), not by
+extension code.
 
 ## Next actions
 
 - Real `/login gemini-app` and a native Gemini turn still need a Google account; not run.
-- Any further changes: commit and push to `origin main`.
+- Push any further changes to `origin main`.
