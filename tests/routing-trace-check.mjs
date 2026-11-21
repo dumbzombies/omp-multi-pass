@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TEST_MODEL, writeTestModels } from "./fixtures/test-model.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(root, "extensions", "multi-sub.ts"), "utf8");
@@ -12,6 +13,7 @@ assert.match(source, /this\.recordTrace\(`selected \$\{nextCandidate\.provider\}
 assert.match(source, /this\.recordTrace\(skip\.detail\)/);
 
 const agentDir = mkdtempSync(join(tmpdir(), "pi-multi-pass-trace-"));
+writeTestModels(agentDir);
 
 try {
 	writeFileSync(
@@ -31,10 +33,10 @@ try {
 		"pi",
 		[
 			"--mode", "rpc",
+			"--model", TEST_MODEL,
 			"--offline",
 			"--no-extensions",
 			"--no-skills",
-			"--no-prompt-templates",
 			"--no-context-files",
 			"--extension", join(root, "extensions", "multi-sub.ts"),
 		],

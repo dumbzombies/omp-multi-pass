@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/header-v2.svg" alt="pi-multi-pass" width="800"/>
+  <img src="docs/header-v2.svg" alt="omp-multi-pass" width="800"/>
 </p>
 
 <p align="center">
@@ -7,8 +7,14 @@
 </p>
 
 <p align="center">
-  Multi-subscription extension for <a href="https://github.com/earendil-works/pi">pi</a> -- use multiple OAuth
-  accounts per provider with automatic rate-limit rotation and project-level affinity.
+  Multi-subscription extension for <a href="https://github.com/can1357/oh-my-pi">oh-my-pi (omp)</a> -- use
+  multiple OAuth accounts per provider with automatic rate-limit rotation and project-level affinity.
+</p>
+
+<p align="center">
+  Fork of <a href="https://github.com/hjanuschka/pi-multi-pass">hjanuschka/pi-multi-pass</a>, with
+  the <a href="https://github.com/ShawTim/gemini-app2api">ShawTim/gemini-app2api</a> Gemini App
+  provider bundled in. MIT. See <a href="NOTICE">NOTICE</a>.
 </p>
 
 ---
@@ -16,14 +22,26 @@
 ## Install
 
 ```bash
-pi install npm:pi-multi-pass
+omp install git:github.com/dumbzombies/omp-multi-pass
 ```
 
-Or via git:
+Or from a local clone:
 
 ```bash
-pi install git:github.com/hjanuschka/pi-multi-pass
+omp install /path/to/omp-multi-pass
 ```
+
+Restart omp after installing. The package registers two extensions: the
+multi-subscription manager and the bundled Gemini App provider.
+
+## omp differences
+
+- Global config: `~/.omp/agent/multi-pass.json`
+- Project config: `.omp/multi-pass.json`, with `.pi/multi-pass.json` read as a fallback
+- Credentials: `~/.omp/agent/auth.json`
+- Auth lookup tolerates hosts that expose `modelRegistry.authStorage` without
+  `hasAuth`; this fixes the `authStorage.hasAuth is not a function` crash in `/subs`
+- Selector scripts and presets resolve from `~/.omp/agent/`
 
 ## Features
 
@@ -35,16 +53,44 @@ pi install git:github.com/hjanuschka/pi-multi-pass
 - **Model presets**: Named routing shortcuts across providers (`/mp-preset coding-premium`)
 - **Built-in limits checks**: Inspect subscription headroom across accounts with `/subs limits` (Anthropic, Codex, Google)
 - **Experimental offline OAuth sharing**: Copy one selected account using QR frames or a single copy/paste export string (no network required)
-- **Opt-in token keeper**: One OAuth refresh per machine instead of one per pi process, so parallel sessions cannot burn each other's rotating refresh tokens (`/subs keeper`)
+- **Opt-in token keeper**: One OAuth refresh per machine instead of one per omp process, so parallel sessions cannot burn each other's rotating refresh tokens (`/subs keeper`)
 - **Smarter retries**: Preserve failover progress across internal replay retries
 - **Project affinity**: Restrict which subs/pools/chains are used per project
 - **TUI management**: `/subs`, `/pool`, and `/mp-preset` commands -- no config files needed
 - **Labels**: Tag subscriptions (e.g. "work", "personal")
+- **Gemini App provider**: Native HTTP/2 Gemini App models, `/login gemini-app`, `/gemini-quota`, and multi-account Gemini App subscriptions
 - **Live model catalogs**: Subscription providers mirror the base provider's
-  merged model catalog (static builtin + pi.dev remote overlay from
+  merged model catalog (static builtin + remote overlay from
   `models-store.json`) on every model refresh, so newly catalogued models
   (e.g. `gpt-6-astra` for Codex) reach extra accounts without a
-  pi-multi-pass release
+  omp-multi-pass release
+
+### Gemini App models
+
+Bundled from `pi-gemini-app` 0.1.8:
+
+| Model ID | Display name | Context | Max output | Notes |
+|---|---|---:|---:|---|
+| `gemini-neon` | Gemini Neon | 512,000 | 16,384 | Text, images, tools, thinking; `gemini-argon` aliases here |
+| `gemini-hydrogen` | Gemini Hydrogen | 512,000 | 16,384 | Text, images, tools, thinking |
+| `gemini-flash-lite` | Gemini Flash Lite | 128,000 | 8,192 | Text, images, tools, thinking |
+| `gemini-auto` | Gemini Auto | 128,000 | 8,192 | Smart selection; the only model exposed on free tier |
+
+`/login gemini-app` signs in and detects the subscription tier. `/gemini-quota`
+shows tier and rolling usage. Gemini App accounts can also be added as extra
+subscriptions (`/subs add gemini-app`), which registers `gemini-app-1`,
+`gemini-app-2`, ... with the same catalog.
+
+Other Gemini model ids referenced by upstream but not exposed as first-class
+catalog entries: `gemini-argon` (temporary alias for Neon),
+`gemini-argon-thinking`, and `gemini-flash` (internal/legacy names used by the
+native wire format). They are not selectable models here.
+
+### Gemini App terms
+
+`/login gemini-app` submits acceptance of Google's Gemini Terms of Service for
+the signed-in account. This is unofficial interoperability software, not
+affiliated with Google. Sign in only with an account whose terms you accept.
 
 ### MiniMax model choices
 
@@ -55,7 +101,7 @@ and the current selection keep the complete catalog, and anything you declare in
 `models.json` or another extension re-registers is never hidden. A host catalog
 without M3 or M3.1-Flash keeps every text model it has.
 
-pi's native `/model` picker is untouched, so with `/subs intercept-model` off you
+omp's native `/model` picker is untouched, so with `/subs intercept-model` off you
 can still reach the older models there.
 
 ## Quick start
@@ -97,16 +143,16 @@ When one account hits a rate limit during an assistant turn, multi-pass automati
 
 Anthropic and OpenAI rotate the refresh token on every refresh and reject the
 previous one (`refresh_token_reused`, `invalid_grant`). A rotation that never
-reaches `auth.json` therefore costs the login. With many pi processes sharing
-one `auth.json`, pi's per-process refresh loses that race often enough to
+reaches `auth.json` therefore costs the login. With many omp processes sharing
+one `auth.json`, omp's per-process refresh loses that race often enough to
 matter: its refresh deadline (15s) or its credential lock (30s stale) can
 expire after the provider has already rotated.
 
 Enabled with `/subs keeper` (or `"tokenKeeper": true` in
-`~/.pi/agent/multi-pass.json`), multi-pass takes over refreshes:
+`~/.omp/agent/multi-pass.json`), multi-pass takes over refreshes:
 
-- renews tokens 15 minutes before expiry, ahead of pi's own 5-minute window
-- holds the same `auth.json` lock pi uses, re-reads inside it, and skips the
+- renews tokens 15 minutes before expiry, ahead of omp's own 5-minute window
+- holds the same `auth.json` lock omp uses, re-reads inside it, and skips the
   network when another process already stored a usable token
 - writes the rotated credential in that same locked transaction, so a slow
   provider or a cancelled request cannot drop it
@@ -114,7 +160,7 @@ Enabled with `/subs keeper` (or `"tokenKeeper": true` in
   subscriptions
 
 Off by default: it changes who refreshes your credentials, so enable it only
-if you actually run several pi sessions at once.
+if you actually run several omp sessions at once.
 
 ### `/pool` -- Rotation pool and chain management
 
@@ -133,7 +179,7 @@ if you actually run several pi sessions at once.
 ### `/pool trace` -- Opt-in routing decisions
 
 Tracing is disabled by default and stores nothing until explicitly started. Entries
-are kept only in memory for the current pi session, with the newest 100 retained.
+are kept only in memory for the current omp session, with the newest 100 retained.
 Prompt contents are not recorded.
 
 ```
@@ -169,7 +215,7 @@ Prompt contents are not recorded.
 
 ## Project-level configuration
 
-Use `/pool project` to configure per-project subscription affinity. This creates `.pi/multi-pass.json` in your project directory.
+Use `/pool project` to configure per-project subscription affinity. This creates `.omp/multi-pass.json` in your project directory.
 
 When `allowedSubs` is set, multi-pass now treats it as an exact allow-list for this project: active routing, pool membership, and chain traversal are all constrained to those provider names.
 
@@ -186,7 +232,7 @@ cd ~/work/corp-project
 
 # Side project: allow everything (no restriction)
 cd ~/side-project
-# No .pi/multi-pass.json needed -- uses all global subs
+# No .omp/multi-pass.json needed -- uses all global subs
 ```
 
 ### What project config can do
@@ -201,7 +247,7 @@ cd ~/side-project
 
 ### Project config file
 
-`.pi/multi-pass.json`:
+`.omp/multi-pass.json`:
 
 ```json
 {
@@ -322,12 +368,12 @@ Point to a JS script that decides which member to try first. The script receives
 }
 ```
 
-Script paths are resolved relative to `~/.pi/agent/`. Absolute paths and `~/` paths also work.
+Script paths are resolved relative to `~/.omp/agent/`. Absolute paths and `~/` paths also work.
 
 **Selector script interface:**
 
 ```js
-// ~/.pi/agent/selectors/my-codex-selector.js
+// ~/.omp/agent/selectors/my-codex-selector.js
 module.exports = async function select(ctx) {
   // ctx.members:         string[]  -- available (non-exhausted, authenticated) members
   // ctx.currentProvider: string    -- the provider that just hit a rate limit
@@ -390,7 +436,7 @@ Presets are named routing shortcuts that map to an ordered list of provider+mode
 
 ### Config
 
-Presets are stored in `~/.pi/agent/multi-pass.json`:
+Presets are stored in `~/.omp/agent/multi-pass.json`:
 
 ```json
 {
@@ -447,13 +493,13 @@ Google quota is not a single flat subscription bucket, so the details view shows
 
 When a pool uses the `quota-first` strategy, the same quota checkers are used automatically during failover to pick the healthiest member instead of just round-robin.
 
-When a project defines `.pi/multi-pass.json` with `allowedSubs`, `/subs limits` only shows accounts allowed in that project.
+When a project defines `.omp/multi-pass.json` with `allowedSubs`, `/subs limits` only shows accounts allowed in that project.
 
 Future providers can add another checker without changing the `/subs` command surface.
 
 ## Experimental: share an OAuth account
 
-`/subs share` picks one authenticated OAuth account and renders it as one or more numbered QR frames. Scan every frame in any order with a compatible receiver; use `n`/`p` to advance/backtrack, `u` to reveal a frame URI, or `c` to open a **single copyable export string** in pi's editor for pi-to-pi transfer. On the other computer, run `/subs receive` and choose `Paste one full export string` (or paste QR frame URIs individually). Line breaks from terminal wrapping are accepted in the full string. No network, listener, relay, or source computer uptime is required after capture. The receiver imports under a new extra-subscription name, never overwrites an existing credential, and must restart pi to register the new provider. Omarchy on the *same* machine already reads pi's local auth and does not need this transfer.
+`/subs share` picks one authenticated OAuth account and renders it as one or more numbered QR frames. Scan every frame in any order with a compatible receiver; use `n`/`p` to advance/backtrack, `u` to reveal a frame URI, or `c` to open a **single copyable export string** in omp's editor for omp-to-omp transfer. On the other computer, run `/subs receive` and choose `Paste one full export string` (or paste QR frame URIs individually). Line breaks from terminal wrapping are accepted in the full string. No network, listener, relay, or source computer uptime is required after capture. The receiver imports under a new extra-subscription name, never overwrites an existing credential, and must restart omp to register the new provider. Omarchy on the *same* machine already reads omp's local auth and does not need this transfer.
 
 **Security:** The frames contain the **entire OAuth access and refresh credential**. Base64 and compression are not encryption. Anyone who captures all frames can use the account; the frames do **not expire or self-destruct** when you close the display. Only share in a private setting with a device you trust. To invalidate leaked credentials, revoke them at the provider. Do not screenshot, log, or upload the QR URIs or full string. Copying to a system clipboard may sync the credential to other devices or retain it in clipboard history; clear it after import. See [offline QR protocol](docs/share-protocol.md) for the v2 frame and text formats.
 
@@ -471,8 +517,8 @@ Env entries merge with saved config.
 
 | File | Scope | Contains |
 |---|---|---|
-| `~/.pi/agent/multi-pass.json` | Global | Subscriptions + pools + chains |
-| `.pi/multi-pass.json` | Project | Pool/chain overrides + sub restrictions |
+| `~/.omp/agent/multi-pass.json` | Global | Subscriptions + pools + chains |
+| `.omp/multi-pass.json` | Project | Pool/chain overrides + sub restrictions |
 
 ## License
 

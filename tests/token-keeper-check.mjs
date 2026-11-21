@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { TEST_MODEL, writeTestModels } from "./fixtures/test-model.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = await readFile(join(root, "extensions", "multi-sub.ts"), "utf8");
@@ -45,6 +46,7 @@ assert.match(source, /async function importShareBundle\(bundle: ShareBundle\): P
 // A session with the keeper enabled starts clean and leaves tokens that are
 // nowhere near expiry alone.
 const agentDir = mkdtempSync(join(tmpdir(), "pi-multi-pass-keeper-"));
+writeTestModels(agentDir);
 try {
 	writeFileSync(
 		join(agentDir, "multi-pass.json"),
@@ -71,10 +73,10 @@ try {
 		"pi",
 		[
 			"--mode", "rpc",
+			"--model", TEST_MODEL,
 			"--offline",
 			"--no-extensions",
 			"--no-skills",
-			"--no-prompt-templates",
 			"--no-context-files",
 			"--extension", join(root, "extensions", "multi-sub.ts"),
 		],

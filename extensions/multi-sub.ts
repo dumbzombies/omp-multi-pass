@@ -7,7 +7,7 @@
  * Features:
  *   - /subs: manage subscriptions (add, remove, login, logout, status)
  *   - /pool: define provider pools with auto-rotation on rate limit errors
- *   - Project-level pool config: .pi/multi-pass.json overrides global pools
+ *   - Project-level pool config: .omp/multi-pass.json overrides global pools
  *   - MULTI_SUB env var for scripting
  *
  * Pool auto-rotation: group subscriptions into pools. When the active sub
@@ -16,8 +16,8 @@
  * provider/account.
  *
  * Config files:
- *   Global:  ~/.pi/agent/multi-pass.json  (subscriptions + default pools)
- *   Project: .pi/multi-pass.json          (pool overrides + subscription filtering)
+ *   Global:  ~/.omp/agent/multi-pass.json (subscriptions + default pools)
+ *   Project: .omp/multi-pass.json         (pool overrides + subscription filtering)
  *
  * Project-level config can:
  *   - Define project-specific pools (override global pools)
@@ -48,6 +48,9 @@ import { homedir } from "os";
 import lockfile from "proper-lockfile";
 import { decodeShareText, encodeShareFrames, encodeShareText, ShareFrameCollector, validateBundle, type ShareBundle, type SharedAccount } from "../lib/share.ts";
 import { configuredModelOverride, matchesCatalogModel, mergeCatalog, minimaxBase, minimaxChoiceRank, ordinaryModelChoices, type CatalogEntry } from "../lib/model-choices.ts";
+import { createGeminiOAuthAuth } from "../vendor/gemini-app2api/extensions/pi/auth.js";
+import { MODELS as GEMINI_APP_MODELS, filterGeminiModels } from "../vendor/gemini-app2api/extensions/pi/provider.js";
+import { createGeminiStreamHandler } from "../vendor/gemini-app2api/extensions/pi/stream.js";
 import { dirname, isAbsolute, join } from "path";
 import { pathToFileURL } from "url";
 import type {
@@ -70,9 +73,11 @@ import {
 import {
 	builtinProviders,
 	getBuiltinModels as getModels,
+	type BuiltinProvider,
 } from "@earendil-works/pi-ai/providers/all";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai/oauth";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import {
 	Container,
 	Input,
@@ -95,6 +100,17 @@ import {
 
 type CopilotCredentials = OAuthCredentials & { enterpriseUrl?: string };
 type GeminiCredentials = OAuthCredentials & { projectId?: string };
+
+/** Vendored gemini-app catalog is plain JS; its objects match pi-ai's Model. */
+const geminiAppModels = GEMINI_APP_MODELS as unknown as Model<Api>[];
+
+/**
+ * Catalog lookup for a provider name. Extension-provided ids (e.g.
+ * gemini-app) are not in the builtin union and resolve to an empty list.
+ */
+function builtinModelsFor(provider: string): Model<Api>[] {
+	return getModels(provider as BuiltinProvider) as Model<Api>[];
+}
 
 // pi-ai >= 0.84 turned `@earendil-works/pi-ai/oauth` into a type-only entry:
 // the runtime login/refresh helpers this extension used to import are gone.
@@ -281,8 +297,11 @@ interface ProviderTemplate {
 	displayName: string;
 	apiKey?: string;
 	usesCallbackServer?: boolean;
+	/** Catalog for extension-provided providers absent from the pi-ai builtin list. */
+	models?: Model<Api>[];
 	buildOAuth?(index: number): Omit<OAuthProviderInterface, "id">;
 	buildModifyModels?(providerName: string): OAuthProviderInterface["modifyModels"];
+	buildStreamSimple?(): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
 }
 
 const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
@@ -349,6 +368,39 @@ const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
 		},
 	},
 
+	// Google Gemini App accounts use ShawTim/gemini-app2api's native HTTP/2
+	// transport instead of a pi-ai builtin flow. Models come from its catalog,
+	// and filterGeminiModels drops paid-mode models on free-tier accounts.
+	"gemini-app": {
+		displayName: "Google Gemini App",
+		usesCallbackServer: true,
+		models: geminiAppModels,
+		buildOAuth(index: number) {
+			const auth = createGeminiOAuthAuth();
+			return {
+				name: `Google Gemini App #${index}`,
+				isSubscription: true,
+				usesCallbackServer: true,
+				async login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
+					return auth.login(toAuthInteraction(callbacks));
+				},
+				async refreshToken(credentials: OAuthCredentials, signal?: AbortSignal): Promise<OAuthCredentials> {
+					return auth.refresh(asOAuthCredential(credentials), signal ?? new AbortController().signal);
+				},
+				getApiKey(credentials: OAuthCredentials): string {
+					return credentials.access;
+				},
+			};
+		},
+		buildModifyModels() {
+			return (models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[] =>
+				filterGeminiModels(models, credentials) as Model<Api>[];
+		},
+		buildStreamSimple() {
+			return createGeminiStreamHandler({ createAssistantMessageEventStream }).streamSimple;
+		},
+	},
+
 	minimax: {
 		displayName: "MiniMax (Global)",
 		apiKey: "$MINIMAX_API_KEY",
@@ -410,24 +462,75 @@ interface AuthStorageCompat {
 	logout(provider: string): Promise<void>;
 }
 
+/**
+ * Hosts expose different auth surfaces:
+ *   - pi >= 0.84: ModelRegistry.getProviderAuthStatus()/readStoredCredential()
+ *   - some pi builds: modelRegistry.authStorage with hasAuth/get/logout
+ *   - oh-my-pi: no authStorage property at all
+ * Never trust a truthy authStorage without checking its methods; passing an
+ * object that only has get()/set() through produced "hasAuth is not a
+ * function" crashes in /subs.
+ */
+function isAuthStorageCompat(value: unknown): value is AuthStorageCompat {
+	if (!value || typeof value !== "object") return false;
+	const storage = value as Partial<AuthStorageCompat>;
+	return typeof storage.hasAuth === "function" && typeof storage.get === "function";
+}
+
 function getAuthStorage(ctx: ExtensionContext | ExtensionCommandContext): AuthStorageCompat {
 	const registry = ctx.modelRegistry as unknown as {
-		authStorage?: AuthStorageCompat;
-		runtime?: { logout(provider: string): Promise<void> };
-		getProviderAuthStatus(provider: string): { configured: boolean };
+		authStorage?: Partial<AuthStorageCompat>;
+		runtime?: { logout?(provider: string): Promise<void> };
+		getProviderAuthStatus?(provider: string): { configured?: boolean };
 	};
-	if (registry.authStorage) return registry.authStorage;
+	const candidate = "authStorage" in ctx ? ctx.authStorage : registry.authStorage;
+	if (isAuthStorageCompat(candidate)) {
+		const logout = typeof candidate.logout === "function"
+			? candidate.logout.bind(candidate)
+			: undefined;
+		if (logout) return { ...candidate, logout };
+		return {
+			hasAuth: (provider) => candidate.hasAuth(provider),
+			get: (provider) => candidate.get(provider),
+			logout: async (provider) => {
+				await removeStoredCredential(provider);
+			},
+		};
+	}
 
 	return {
-		hasAuth: (provider) => registry.getProviderAuthStatus(provider).configured,
-		get: (provider) => readStoredCredential(provider) as AuthStorageEntry | undefined,
-		logout: async (provider) => {
-			if (!registry.runtime) {
-				throw new Error("This pi version does not expose credential logout");
+		hasAuth: (provider) => {
+			if (typeof registry.getProviderAuthStatus === "function") {
+				try {
+					if (registry.getProviderAuthStatus(provider)?.configured === true) return true;
+				} catch {
+					// Fall through to the credential file.
+				}
 			}
-			await registry.runtime.logout(provider);
+			try {
+				return readAuthFile()[provider] !== undefined;
+			} catch {
+				return false;
+			}
+		},
+		get: (provider) => readAuthFile()[provider],
+		logout: async (provider) => {
+			if (typeof registry.runtime?.logout === "function") {
+				await registry.runtime.logout(provider);
+				return;
+			}
+			await removeStoredCredential(provider);
 		},
 	};
+}
+
+/** Host-independent credential removal, used when the host exposes no logout. */
+async function removeStoredCredential(provider: string): Promise<void> {
+	await withAuthFile((stored) => {
+		if (!(provider in stored)) return { value: undefined };
+		delete stored[provider];
+		return { value: undefined, changed: true };
+	});
 }
 
 /** Agent-wide device UUID stored in pi's settings.json. Pi's new OpenAI
@@ -553,7 +656,7 @@ function keepFreshCredential(
 
 let tokenKeeperTimer: ReturnType<typeof setInterval> | undefined;
 
-/** Opt-in: `"tokenKeeper": true` in ~/.pi/agent/multi-pass.json, or /subs keeper. */
+/** Opt-in: `"tokenKeeper": true` in ~/.omp/agent/multi-pass.json, or /subs keeper. */
 function isTokenKeeperEnabled(): boolean {
 	return loadGlobalConfig().tokenKeeper === true;
 }
@@ -1853,7 +1956,7 @@ const codexQuotaChecker: ProviderQuotaChecker = {
 		const headers = new Headers({
 			Authorization: `Bearer ${auth.access}`,
 			Accept: "application/json",
-			"User-Agent": "pi-multi-pass",
+			"User-Agent": "omp-multi-pass",
 		});
 		if (accountId) {
 			headers.set("chatgpt-account-id", accountId);
@@ -2275,7 +2378,7 @@ async function handleSubsLimits(ctx: ExtensionCommandContext): Promise<void> {
 }
 
 // ==========================================================================
-// Config persistence (~/.pi/agent/multi-pass.json)
+// Config persistence (~/.omp/agent/multi-pass.json)
 // ==========================================================================
 
 interface SubEntry {
@@ -2381,7 +2484,7 @@ interface PoolConfig {
 	memberSchedule?: Record<string, MemberSchedule>;
 	/** Path to a JS module exporting a selector function.
 	 *  Only used when strategy is "custom". Resolved relative to the
-	 *  global config directory (~/.pi/agent/). */
+	 *  global config directory (~/.omp/agent/). */
 	selectorScript?: string;
 }
 
@@ -2418,7 +2521,7 @@ interface MultiPassConfig {
 	tokenKeeper?: boolean;
 }
 
-/** Project-level config (.pi/multi-pass.json) */
+/** Project-level config (.omp/multi-pass.json, .pi fallback) */
 interface ProjectConfig {
 	/** Override pools for this project. If set, replaces global pools. */
 	pools?: PoolConfig[];
@@ -2447,6 +2550,10 @@ function globalConfigPath(): string {
 }
 
 function projectConfigPath(cwd: string): string {
+	// oh-my-pi uses .omp/; keep reading .pi/ so an existing project config
+	// keeps working when a repo is opened in omp.
+	const ompPath = join(cwd, ".omp", "multi-pass.json");
+	if (existsSync(ompPath)) return ompPath;
 	return join(cwd, ".pi", "multi-pass.json");
 }
 
@@ -2594,7 +2701,7 @@ function saveJsonConfig(path: string, config: unknown): void {
 	}
 
 	if (backupPath) {
-		console.warn(`[pi-multi-pass] Backed up malformed config to ${backupPath}`);
+		console.warn(`[omp-multi-pass] Backed up malformed config to ${backupPath}`);
 	}
 }
 
@@ -2806,8 +2913,7 @@ function subModelName(entry: SubEntry, originalName: string): string {
 	return parts.join(" \u00b7 ");
 }
 
-function cloneModels(originalProvider: string, index: number, entry?: SubEntry) {
-	const models = getModels(originalProvider as any) as Model<Api>[];
+function cloneModelList(models: readonly Model<Api>[], index: number, entry?: SubEntry) {
 	return models.map((m) => ({
 		id: m.id,
 		name: entry ? subModelName(entry, m.name) : `${m.name} (#${index})`,
@@ -2825,8 +2931,8 @@ function cloneModels(originalProvider: string, index: number, entry?: SubEntry) 
 
 /**
  * Read the base provider's persisted remote-catalog overlay
- * (~/.pi/agent/models-store.json). pi refreshes this file for builtin
- * providers (pi.dev catalog, `pi update --models`, periodic re-checks);
+ * (~/.omp/agent/models-store.json). omp refreshes this file for builtin
+ * providers (remote catalog, `omp models refresh`, periodic re-checks);
  * extension-registered providers never receive that overlay, so
  * subscriptions mirror it from here.
  */
@@ -2855,7 +2961,7 @@ function storedOverlayModels(baseProvider: string): Model<Api>[] {
  * entries win, mirroring pi's own catalog merge). Returned from
  * `refreshModels` so catalog additions (e.g. gpt-6-astra) and metadata
  * updates reach extra accounts on every model refresh cycle without a
- * pi-multi-pass release.
+ * omp-multi-pass release.
  */
 function liveSubscriptionModels(entry: SubEntry, name: string): Model<Api>[] {
 	const catalog = subscriptionCatalog(entry.provider);
@@ -2873,7 +2979,9 @@ const mirroredCatalogs = new Map<string, CatalogEntry[]>();
 const subscriptionRegistrations = new Map<string, unknown>();
 
 function subscriptionCatalog(provider: string): CatalogEntry[] {
-	return mergeCatalog(getModels(provider as any) as Model<Api>[], storedOverlayModels(provider));
+	const builtin = builtinModelsFor(provider);
+	const base = builtin.length > 0 ? builtin : PROVIDER_TEMPLATES[provider]?.models ?? [];
+	return mergeCatalog(base, storedOverlayModels(provider));
 }
 
 function ordinaryChoices(
@@ -2890,25 +2998,43 @@ function ordinaryChoices(
 		return models;
 	}
 	const catalogs = new Map<string, CatalogEntry[]>();
-	return ordinaryModelChoices(models, (model) => {
+	const hasRegistrationLayers = typeof ctx.modelRegistry.getRegisteredProviderConfig === "function"
+		&& typeof ctx.modelRegistry.getRegisteredNativeProvider === "function";
+	const catalogFor = (base: string): CatalogEntry[] => {
+		let catalog = catalogs.get(base);
+		if (!catalog) {
+			catalog = subscriptionCatalog(base);
+			catalogs.set(base, catalog);
+		}
+		return catalog;
+	};
+	// Without provider-config introspection the registry cannot distinguish a
+	// catalog mirror from a host override. Drop preferred-model ids that are no
+	// longer in the live catalog so one stale registration cannot hide the rest.
+	const candidates = hasRegistrationLayers ? models : models.filter((model) => {
+		const base = minimaxBase(model.provider);
+		if (!base || configuredModelOverride(config, model.provider, model.id)) return true;
+		return catalogFor(base).some((item) => item.model.id === model.id);
+	});
+	return ordinaryModelChoices(candidates, (model) => {
 		const base = minimaxBase(model.provider);
 		if (!base || configuredModelOverride(config, model.provider, model.id)) return false;
 		const registry = ctx.modelRegistry;
-		if (typeof registry.getRegisteredProviderConfig !== "function"
-			|| typeof registry.getRegisteredNativeProvider !== "function") return false;
-		const registered = registry.getRegisteredProviderConfig(model.provider);
-		const native = registry.getRegisteredNativeProvider?.(model.provider);
-		const own = subscriptionRegistrations.get(model.provider) as Record<string, unknown> | undefined;
-		// Pi shallow-copies registrations. Compare the actual layer (including model
-		// array and refresh callback identity), not a tag on flattened models.
-		if (native || (registered && (!own || Object.entries(registered).some(([key, value]) => own[key] !== value)))) return false;
-		let catalog = mirroredCatalogs.get(model.provider);
+		if (hasRegistrationLayers) {
+			const registered = registry.getRegisteredProviderConfig(model.provider);
+			const native = registry.getRegisteredNativeProvider?.(model.provider);
+			const own = subscriptionRegistrations.get(model.provider) as Record<string, unknown> | undefined;
+			// Pi shallow-copies registrations. Compare the actual layer (including model
+			// array and refresh callback identity), not a tag on flattened models.
+			if (native || (registered && (!own || Object.entries(registered).some(([key, value]) => own[key] !== value)))) return false;
+		}
+		let catalog = hasRegistrationLayers ? mirroredCatalogs.get(model.provider) : undefined;
 		if (!catalog) {
-			if (model.provider !== base) return false;
-			catalog = catalogs.get(base) ?? subscriptionCatalog(base);
-			catalogs.set(base, catalog);
+			if (model.provider !== base && hasRegistrationLayers) return false;
+			catalog = catalogFor(base);
 		}
 		const expected = catalog.find((item) => item.model.id === model.id);
+		if (!hasRegistrationLayers) return !!expected;
 		return !!expected && matchesCatalogModel(model, model.provider === base
 			? expected.model : { ...expected.model, headers: undefined });
 	}, current);
@@ -2938,11 +3064,11 @@ function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
 				: defaultRefresh(credentials, signal);
 	}
 	const modifyModels = oauth ? template.buildModifyModels?.(name) : undefined;
-	const builtinModels = getModels(entry.provider as any) as Model<Api>[];
-	const baseUrl = builtinModels[0]?.baseUrl || "";
-	const models = cloneModels(entry.provider, entry.index, entry);
+	const sourceModels = subscriptionCatalog(entry.provider).map((entry) => entry.model);
+	const baseUrl = sourceModels[0]?.baseUrl || "";
+	const models = cloneModelList(sourceModels, entry.index, entry);
 
-	mirroredCatalogs.set(name, builtinModels.map((model, index) => ({
+	mirroredCatalogs.set(name, sourceModels.map((model, index) => ({
 		origin: "builtin",
 		model: { ...model, ...models[index], provider: name },
 	})));
@@ -2953,10 +3079,11 @@ function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
 		// available for future UI (e.g. an upstream /model badge fix).
 		name: subDisplayName(entry),
 		baseUrl,
-		api: builtinModels[0]?.api,
+		api: sourceModels[0]?.api,
 		apiKey: template.apiKey,
 		oauth: oauth && modifyModels ? { ...oauth, modifyModels } : oauth,
 		models,
+		streamSimple: template.buildStreamSimple?.(),
 		refreshModels: async () => liveSubscriptionModels(entry, name),
 	};
 	subscriptionRegistrations.set(name, registration);
@@ -5375,7 +5502,7 @@ async function promptForPoolDefinition(
 	if (strategy === "custom") {
 		const scriptPath = await ctx.ui.input(
 			"Selector script path",
-			"e.g. selectors/my-pool.js (relative to ~/.pi/agent/)",
+			"e.g. selectors/my-pool.js (relative to ~/.omp/agent/)",
 		);
 		if (scriptPath?.trim()) {
 			selectorScript = scriptPath.trim();
@@ -5659,7 +5786,7 @@ async function changePoolStrategy(
 	} else if (nextStrategy === "custom") {
 		const scriptPath = await ctx.ui.input(
 			"Selector script path",
-			"e.g. selectors/my-pool.js (relative to ~/.pi/agent/)",
+			"e.g. selectors/my-pool.js (relative to ~/.omp/agent/)",
 		);
 		if (!scriptPath?.trim()) {
 			ctx.ui.notify("No script path provided. Reverting to round-robin.", "warning");
@@ -6784,7 +6911,7 @@ async function handlePoolMenu(
 		"remove   -- Remove a pool",
 		"status   -- Detailed pool status with member health",
 		"trace    -- Opt-in routing decision trace",
-		"project  -- Project-level pool config (.pi/multi-pass.json)",
+		"project  -- Project-level pool config (.omp/multi-pass.json)",
 	];
 
 	const selected = await ctx.ui.select("Pool Manager", actions);
@@ -6951,8 +7078,8 @@ async function handleSubsMenu(
 		{ value: "share", label: "share", description: "Export one OAuth account as offline QR frames (experimental)" },
 		{ value: "receive", label: "receive", description: "Import offline QR frames from another pi" },
 		{ value: "statusbar", label: "statusbar", description: "Toggle omarchy-style footer status bar" },
-		{ value: "intercept-model", label: "intercept-model", description: "Route pi's /model to /subs model (replaces editor)" },
-		{ value: "keeper", label: "keeper", description: "Toggle shared OAuth token keeper for parallel pi sessions" },
+		{ value: "intercept-model", label: "intercept-model", description: "Route omp's /model to /subs model (replaces editor)" },
+		{ value: "keeper", label: "keeper", description: "Toggle shared OAuth token keeper for parallel omp sessions" },
 	];
 	let preferredAction = "list";
 
@@ -7655,7 +7782,7 @@ async function handleSubsInterceptModel(
 	ctx.ui.notify(
 		config.interceptModel
 			? "multi-pass /model intercept enabled (/subs intercept-model to disable)"
-			: "multi-pass /model intercept disabled, pi's /model restored",
+			: "multi-pass /model intercept disabled, omp's /model restored",
 		"info",
 	);
 }

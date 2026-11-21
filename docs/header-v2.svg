@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="pi-multi-pass">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="omp-multi-pass">
   <rect width="1200" height="320" fill="#15151b"/>
 
   <!-- pi glyph -->
@@ -9,7 +9,7 @@
   </g>
 
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace">
-    <text x="182" y="158" font-size="62" font-weight="700" fill="#e8e8ee">pi-multi-pass</text>
+    <text x="182" y="158" font-size="62" font-weight="700" fill="#e8e8ee">omp-multi-pass</text>
     <text x="184" y="200" font-size="23" fill="#9292a2">multiple oauth accounts per provider,</text>
     <text x="184" y="234" font-size="23" fill="#9292a2">rate-limit rotation, pools and chains</text>
   </g>

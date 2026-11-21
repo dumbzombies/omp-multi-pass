@@ -1,0 +1,18 @@
+# NOTICE
+
+omp-multi-pass is a fork of [pi-multi-pass](https://github.com/hjanuschka/pi-multi-pass)
+by hjanuschka, used under the MIT License. See `LICENSE`.
+
+It bundles [gemini-app2api / pi-gemini-app](https://github.com/ShawTim/gemini-app2api)
+by ShawTim, used under the MIT License. The vendored copy lives in
+`vendor/gemini-app2api/` and keeps its original `LICENSE` and `DISCLAIMER.md`.
+
+Changes in this fork:
+
+- oh-my-pi (omp) extension hosting, configuration paths, and auth compatibility
+  (`authStorage.hasAuth` crash fix).
+- Gemini App provider wiring for multi-account subscriptions.
+- Bundled Gemini App provider extension (native HTTP/2, `/login gemini-app`,
+  `/gemini-quota`), adapted when the host omits newer pi-ai helpers.
+
+Upstream projects are not affiliated with this fork.

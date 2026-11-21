@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { TEST_MODEL, writeTestModels } from "./fixtures/test-model.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const agentDir = mkdtempSync(join(tmpdir(), "pi-multi-pass-auth-"));
+writeTestModels(agentDir);
 
 try {
 	writeFileSync(
@@ -36,10 +38,10 @@ try {
 		[
 			"--mode",
 			"rpc",
+			"--model", TEST_MODEL,
 			"--offline",
 			"--no-extensions",
 			"--no-skills",
-			"--no-prompt-templates",
 			"--no-context-files",
 			"--extension",
 			join(root, "extensions", "multi-sub.ts"),

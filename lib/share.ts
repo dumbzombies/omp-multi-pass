@@ -53,7 +53,7 @@ function unpackBundle(encoded: string, checksum: string): ShareBundle {
 	return bundle;
 }
 
-/** One copy/paste string for pi-to-pi transfer. This is a bearer credential. */
+/** One copy/paste string for omp-to-omp transfer. This is a bearer credential. */
 export function encodeShareText(bundle: ShareBundle): string {
 	const data = compressBundle(bundle);
 	return `${TEXT_PREFIX}${digest(data)}/${data.toString("base64url")}`;

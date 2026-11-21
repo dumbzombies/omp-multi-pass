@@ -1,6 +1,6 @@
 # Experimental offline `/subs share` QR format (v2)
 
-`/subs share` copies a selected OAuth credential **entirely inside the QR frames**, with no network connection, server, pairing handshake or cloud service. The receiver can scan frames in any order; `/subs receive` accepts their URIs one at a time. For pi-to-pi transfer, `c` in the share screen opens one full copyable export string, and `/subs receive` can import that string in a single paste. A native iOS or Android app can decode the same frames and store the credential in its secure local storage.
+`/subs share` copies a selected OAuth credential **entirely inside the QR frames**, with no network connection, server, pairing handshake or cloud service. The receiver can scan frames in any order; `/subs receive` accepts their URIs one at a time. For omp-to-omp transfer, `c` in the share screen opens one full copyable export string, and `/subs receive` can import that string in a single paste. A native iOS or Android app can decode the same frames and store the credential in its secure local storage.
 
 ## Security boundary
 
@@ -8,9 +8,9 @@
 
 Copied provider refresh tokens may rotate or be tied to one device/client. Sharing is experimental; no provider is guaranteed to keep both copies authenticated after refresh. Do not claim persistent multi-device copy until tested for that provider.
 
-## Single copy/paste string (pi-to-pi)
+## Single copy/paste string (omp-to-omp)
 
-Press `c` in `/subs share` to view the complete export in pi's temporary editor. Paste it into `/subs receive` -> `Paste one full export string` on the other computer:
+Press `c` in `/subs share` to view the complete export in omp's temporary editor. Paste it into `/subs receive` -> `Paste one full export string` on the other computer:
 
 ```text
 mps-share://v2/bundle/<sha256>/<base64url_raw_deflate_bundle>

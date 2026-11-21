@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { TEST_MODEL, writeTestModels } from "./fixtures/test-model.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const agentDir = mkdtempSync(join(tmpdir(), "pi-multi-pass-choices-"));
+writeTestModels(agentDir);
 try {
 	const auth = {};
 	for (const provider of ["minimax", "minimax-cn", "minimax-2", "minimax-cn-2", "minimax-cn-3"]) {
@@ -27,8 +29,8 @@ try {
 		presets: [{ name: "legacy", entries: [{ provider: "minimax-2", model: "MiniMax-M2.7", enabled: true }], enabled: true }],
 	}));
 	const child = spawn("pi", [
-		"--mode", "rpc", "--offline", "--no-extensions", "--no-skills",
-		"--no-prompt-templates", "--no-context-files", "--extension",
+		"--mode", "rpc", "--model", TEST_MODEL, "--offline", "--no-extensions", "--no-skills",
+		"--no-context-files", "--extension",
 		join(root, "tests", "fixtures", "minimax-choices.ts"),
 	], { cwd: root, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir } });
 	let stdout = "", stderr = "";
@@ -58,5 +60,5 @@ try {
 	assert.match(stdout, /MiniMax production choices and request checks passed/, stdout + stderr);
 	console.log("MiniMax production choices and request checks passed");
 } finally {
-	rmSync(agentDir, { recursive: true, force: true });
+	rmSync(agentDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
