@@ -51,6 +51,9 @@ import { configuredModelOverride, matchesCatalogModel, mergeCatalog, minimaxBase
 import { createGeminiOAuthAuth } from "../vendor/gemini-app2api/extensions/pi/auth.js";
 import { MODELS as GEMINI_APP_MODELS, filterGeminiModels } from "../vendor/gemini-app2api/extensions/pi/provider.js";
 import { createGeminiStreamHandler } from "../vendor/gemini-app2api/extensions/pi/stream.js";
+import { MODELS as CLINEPASS_MODELS } from "../vendor/clinepass/src/models.ts";
+import { resolveApiBase } from "../vendor/clinepass/src/env.ts";
+import { getApiKey as clinepassGetApiKey, login as clinepassLogin, refreshToken as clinepassRefreshToken } from "../vendor/clinepass/src/oauth.ts";
 import { basename, dirname, isAbsolute, join } from "path";
 import { pathToFileURL } from "url";
 import type {
@@ -103,6 +106,14 @@ type GeminiCredentials = OAuthCredentials & { projectId?: string };
 
 /** Vendored gemini-app catalog is plain JS; its objects match pi-ai's Model. */
 const geminiAppModels = GEMINI_APP_MODELS as unknown as Model<Api>[];
+
+/** ClinePass catalog lacks transport fields; add the OpenAI-compatible API. */
+const clinepassModels = CLINEPASS_MODELS.map((model) => ({
+	...model,
+	provider: "clinepass",
+	baseUrl: `${resolveApiBase()}/api/v1`,
+	api: "openai-completions",
+})) as unknown as Model<Api>[];
 
 /**
  * Catalog lookup for a provider name. Extension-provided ids (e.g.
@@ -296,6 +307,7 @@ function getGitHubCopilotBaseUrl(token: string | undefined, enterpriseUrl: strin
 interface ProviderTemplate {
 	displayName: string;
 	apiKey?: string;
+	baseUrl?: string;
 	usesCallbackServer?: boolean;
 	/** Catalog for extension-provided providers absent from the pi-ai builtin list. */
 	models?: Model<Api>[];
@@ -398,6 +410,23 @@ const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
 		},
 		buildStreamSimple() {
 			return createGeminiStreamHandler({ createAssistantMessageEventStream }).streamSimple;
+		},
+	},
+
+	// ClinePass: reusable Cline CLI WorkOS credentials, or a static API key.
+	// OpenAI-compatible chat completions; no custom stream handler.
+	clinepass: {
+		displayName: "ClinePass",
+		baseUrl: `${resolveApiBase()}/api/v1`,
+		models: clinepassModels,
+		buildOAuth(index: number) {
+			return {
+				name: `ClinePass #${index}`,
+				isSubscription: true,
+				login: (callbacks: OAuthLoginCallbacks) => clinepassLogin(callbacks),
+				refreshToken: (credentials: OAuthCredentials) => clinepassRefreshToken(credentials),
+				getApiKey: (credentials: OAuthCredentials) => clinepassGetApiKey(credentials),
+			};
 		},
 	},
 
@@ -3069,7 +3098,7 @@ function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
 	}
 	const modifyModels = oauth ? template.buildModifyModels?.(name) : undefined;
 	const sourceModels = subscriptionCatalog(entry.provider).map((entry) => entry.model);
-	const baseUrl = sourceModels[0]?.baseUrl || "";
+	const baseUrl = template.baseUrl || sourceModels[0]?.baseUrl || "";
 	const models = cloneModelList(sourceModels, entry.index, entry);
 
 	mirroredCatalogs.set(name, sourceModels.map((model, index) => ({

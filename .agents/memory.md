@@ -105,3 +105,26 @@
   behaviorally close but cannot be byte-identical to pi's registration-layer
   detection. "110%" identical semantics across all three is not possible where
   the host API does not exist; functional compatibility is.
+
+## 2026-11-21 — ClinePass and Command Code providers
+
+- Vendored `pi-clinepass-provider` 1.7.0 (jellydn) in `vendor/clinepass/`.
+  Provider id `clinepass`; 15 models under `cline-pass/...`; WorkOS CLI credential reuse
+  from `~/.cline/data/settings/providers.json` with manual API-key fallback; base URL
+  `https://api.cline.bot/api/v1`, override `CLINE_API_BASE`.
+- Added `clinepass` `PROVIDER_TEMPLATES` entry with vendored catalog, OAuth login/refresh,
+  and `baseUrl`; `/subs add clinepass` registers `clinepass-1`, `clinepass-2`, ...
+- ClinePass vendored imports changed from `./x.js` to `./x.ts`: Node type stripping does
+  not remap `.js` specifiers, and both omp and pi-bolt load the `.ts` sources directly.
+- Vendored ClinePass error handler now also matches `clinepass-<n>` provider ids.
+- Vendored `pi-commandcode-provider` 0.1.0 (safzanpirani) in `vendor/commandcode/`.
+  Provider `commandcode`, API key `COMMANDCODE_API_KEY`, native NDJSON
+  `POST https://api.commandcode.ai/alpha/generate`, 25 OSS models. No OAuth, so it is a
+  bundled base provider only, not a multi-pass subscription template.
+- `PROVIDER_TEMPLATES` gained an optional `baseUrl`; registration uses
+  `template.baseUrl || sourceModels[0].baseUrl`.
+- Package version 1.1.0 registers four extensions: multi-sub, gemini-app, clinepass,
+  commandcode.
+- Verification: all 19 checks pass; omp and pi-bolt load all four extensions with zero
+  `extension_error`; installed-package diff and live RPC `/subs status` succeeded before
+  the Cline/CommandCode additions; reinstall needed after push for the new extensions.

@@ -4,8 +4,9 @@
 
 `omp-multi-pass` is an extension for **pi**, **pi-bolt**, and **oh-my-pi (omp)**. It manages
 multiple OAuth subscriptions per provider (Anthropic, Codex, Copilot, Google, Antigravity,
-MiniMax, Gemini App), plus rotation pools, fallback chains, model presets, project
-restrictions, limits checks, routing traces, and offline OAuth sharing.
+MiniMax, Gemini App, ClinePass), plus rotation pools, fallback chains, model presets,
+project restrictions, limits checks, routing traces, and offline OAuth sharing. It also
+bundles the Command Code provider (API-key only).
 
 It is a fork of [hjanuschka/pi-multi-pass](https://github.com/hjanuschka/pi-multi-pass)
 and bundles [ShawTim/gemini-app2api](https://github.com/ShawTim/gemini-app2api) as a second
@@ -37,6 +38,11 @@ host factory -> load config -> register subscription providers -> runtime routin
   `/login gemini-app`, `/gemini-quota`, and the native HTTP/2 stream handler.
   `extensions/multi-sub.ts` imports its model catalog, OAuth adapter, and stream handler
   to expose Gemini App as normal subscriptions.
+- `vendor/clinepass/src/index.ts` registers the base `clinepass` provider with Cline CLI
+  WorkOS credential reuse or a static API key. `extensions/multi-sub.ts` imports its
+  catalog and OAuth functions for `clinepass-N` subscriptions.
+- `vendor/commandcode/index.ts` registers `commandcode` with a custom NDJSON
+  `/alpha/generate` stream. It is API-key only and is not a subscription template.
 
 ## Key Directories
 
@@ -46,6 +52,8 @@ host factory -> load config -> register subscription providers -> runtime routin
 | `lib/model-choices.ts` | Catalog merge/filter helpers, MiniMax preference rules |
 | `lib/share.ts` | Offline OAuth share string/QR protocol |
 | `vendor/gemini-app2api/` | Vendored Gemini App extension, `src/`, LICENSE, DISCLAIMER |
+| `vendor/clinepass/` | Vendored pi-clinepass-provider; relative imports changed `.js` -> `.ts` |
+| `vendor/commandcode/` | Vendored pi-commandcode-provider; index.ts, docs, LICENSE |
 | `tests/` | Plain Node check scripts, no test framework |
 | `tests/fixtures/` | RPC model fixture and MiniMax routing fixture |
 | `docs/` | Share protocol and header SVG |
@@ -80,7 +88,9 @@ tests rely on Node type stripping. Host packages (`@earendil-works/pi-ai`,
   `models-store.json` overlay; extension providers without a builtin catalog use
   `PROVIDER_TEMPLATES[provider].models`.
 - Keep vendored upstream files intact except documented adapters in
-  `vendor/gemini-app2api/extensions/pi/index.js`.
+  `vendor/gemini-app2api/extensions/pi/index.js` and ClinePass's `.js` -> `.ts`
+  relative imports. The secret split in `vendor/gemini-app2api/src/gateway/oauth-client-defaults.mjs`
+  must stay split.
 - Do not commit secrets or merge the split public OAuth client secret literal.
 
 ## Important Files
@@ -91,6 +101,8 @@ tests rely on Node type stripping. Host packages (`@earendil-works/pi-ai`,
 | `extensions/multi-sub.ts` | Commands, provider registration, routing, config, auth |
 | `lib/model-choices.ts` | `subscriptionCatalog`, `ordinaryModelChoices`, MiniMax ranking |
 | `vendor/gemini-app2api/extensions/pi/index.js` | omp adapter for transcript helpers |
+| `vendor/clinepass/src/oauth.ts` | ClinePass WorkOS/API-key login and refresh |
+| `vendor/commandcode/index.ts` | Command Code NDJSON stream transport |
 | `tests/fixtures/test-model.mjs` | Dummy `test/dummy` provider; writes `models.json` and `models.yml` |
 | `tests/fixtures/minimax-choices.ts` | RPC fixture for routing/model-selection tests |
 | `NOTICE` | Upstream attribution |

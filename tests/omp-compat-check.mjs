@@ -78,7 +78,10 @@ assert.doesNotMatch(JSON.stringify(notes), /hasAuth is not a function/);
 
 // Gemini App subscription is registered from the bundled catalog.
 writeFileSync(join(agentDir, "multi-pass.json"), JSON.stringify({
-	subscriptions: [{ provider: "gemini-app", index: 1, label: "gem" }],
+	subscriptions: [
+		{ provider: "gemini-app", index: 1, label: "gem" },
+		{ provider: "clinepass", index: 1, label: "cline" },
+	],
 	pools: [],
 	chains: [],
 	presets: [],
@@ -98,6 +101,16 @@ assert.equal(typeof registered.streamSimple, "function");
 assert.equal(typeof registered.oauth.login, "function");
 assert.equal(typeof registered.oauth.refreshToken, "function");
 
+const clineReg = providers.get("clinepass-1");
+assert.ok(clineReg, "clinepass-1 registered");
+assert.equal(clineReg.baseUrl, "https://api.cline.bot/api/v1");
+assert.equal(clineReg.api, "openai-completions");
+assert.equal(clineReg.models.length, 15);
+assert.equal(clineReg.models[0].id, "cline-pass/glm-5.3");
+assert.equal(clineReg.models[0].compat.supportsDeveloperRole, false);
+assert.equal(typeof clineReg.oauth.login, "function");
+assert.equal(typeof clineReg.oauth.refreshToken, "function");
+
 // Bundled Gemini App extension registers the base provider and quota command.
 const gemini = await import("../vendor/gemini-app2api/extensions/pi/index.js");
 gemini.default(pi);
@@ -112,5 +125,21 @@ assert.deepEqual(baseProvider.getModels().map((m) => m.id), [
 assert.equal(typeof baseProvider.streamSimple, "function");
 assert.equal(typeof baseProvider.auth.oauth.login, "function");
 assert.ok(commands.has("gemini-quota"), "/gemini-quota registered");
+
+const cline = await import("../vendor/clinepass/src/index.ts");
+cline.default(pi);
+const clineBase = providers.get("clinepass");
+assert.ok(clineBase, "clinepass base provider registered");
+assert.equal(clineBase.models.length, 15);
+assert.equal(typeof clineBase.oauth.login, "function");
+
+const commandCode = await import("../vendor/commandcode/index.ts");
+commandCode.default(pi);
+const ccBase = providers.get("commandcode");
+assert.ok(ccBase, "commandcode base provider registered");
+assert.equal(ccBase.api, "commandcode-generate");
+assert.equal(ccBase.models.length, 25);
+assert.equal(typeof ccBase.streamSimple, "function");
+assert.equal(ccBase.apiKey, "COMMANDCODE_API_KEY");
 
 console.log("omp compatibility checks passed");

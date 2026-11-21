@@ -1,0 +1,396 @@
+/**
+ * Curated ClinePass model definitions. Catalog changes require a release.
+ *
+ * @module clinepass-models
+ */
+
+// ─── Model Definitions ─────────────────────────────────────────────────────
+
+/** Pi thinking levels that models map to provider-specific reasoning_effort. */
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/**
+ * Explicit capability matrix mapping every thinking level to a
+ * provider-specific `reasoning_effort` string or `null` (unsupported).
+ * Every model must declare all six levels — there are no implicit defaults.
+ */
+export type ThinkingLevelMap = Readonly<Record<ThinkingLevel, string | null>>;
+
+/**
+ * OpenAI-compat flags for ClinePass chat completions.
+ *
+ * ClinePass only accepts classic roles (`system`, `assistant`, `user`, `tool`,
+ * `function`). pi-ai defaults to `developer` for reasoning models unless
+ * `supportsDeveloperRole` is false (see pi-ai README).
+ */
+export interface ClinePassOpenAICompat {
+  readonly supportsDeveloperRole: boolean;
+  readonly thinkingFormat?: string;
+}
+
+export const CLINEPASS_OPENAI_COMPAT: ClinePassOpenAICompat = {
+  supportsDeveloperRole: false,
+};
+
+/**
+ * Input modalities a model accepts. Image-capable models declare
+ * `["text", "image"]`; text-only models declare `["text"]`.
+ */
+export type ModelInput = readonly ("text" | "image")[];
+
+/**
+ * ClinePass curated coding models.
+ *
+ * Model IDs use the full ClinePass slug (e.g. "cline-pass/glm-5.3") as
+ * documented at https://docs.cline.bot/getting-started/clinepass — these are
+ * the values Cline's API expects in the `model` field.
+ *
+ * `contextWindow` is in tokens; `maxTokens` is the max output tokens.
+ * Reference pricing ($/M tokens) is used for usage estimates, not billing.
+ * Sources and provisional rates are noted per model where needed.
+ */
+export interface ModelConfig {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  /** Input modalities ("text" and, for multimodal models, "image"). */
+  input: ModelInput;
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  contextWindow: number;
+  maxTokens: number;
+  /**
+   * Maps every pi thinking level to a provider-specific reasoning_effort
+   * string, or `null` to mark a level as unsupported. Every model must
+   * declare all six levels explicitly — there are no implicit defaults.
+   */
+  thinkingLevelMap: ThinkingLevelMap;
+  /** pi-ai openai-completions compat overrides for the ClinePass API. */
+  compat: ClinePassOpenAICompat;
+}
+
+/** Static catalog entries; per-model compat overrides merge with CLINEPASS_OPENAI_COMPAT. */
+interface ModelConfigBase extends Omit<ModelConfig, "compat"> {
+  compat?: Partial<ClinePassOpenAICompat>;
+}
+
+const MODELS_BASE: readonly ModelConfigBase[] = [
+  {
+    id: "cline-pass/glm-5.3",
+    name: "GLM-5.3 (ClinePass)",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    // GLM-5.3 (Z.ai) always reasons and cannot be disabled — its
+    // reasoning_effort enum is low/high/max (default max), with no "medium"
+    // or "xhigh" tier. "off"/"minimal" are null because thinking can't be
+    // turned off and there is no tier below low; "medium" is null for the
+    // same enum-gap reason. pi's "xhigh" maps to "max", the extra-high
+    // tier, so every offered level (low/high/xhigh) is distinct and
+    // increasing — mirroring Kimi K3's use of "max" and Qwen3.8-max's
+    // sparse-level pattern.
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: null,
+      high: "high",
+      xhigh: "max",
+    },
+  },
+  {
+    id: "cline-pass/glm-5.3-flash",
+    name: "GLM-5.3-Flash (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // Z.ai standard API pricing (per 1M tokens): $0.15 in / $0.50 out /
+    // $0.03 cached input.
+    cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    // Z.ai docs: text parameters are consistent with GLM-5.3 and thinking
+    // cannot be disabled (thinking.type only supports enabled), so the
+    // reasoning_effort enum is low/high/max with off/minimal/medium
+    // unsupported — same map as GLM-5.3.
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: null,
+      high: "high",
+      xhigh: "max",
+    },
+  },
+  {
+    id: "cline-pass/kimi-k3",
+    name: "Kimi K3 (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    // K3 always reasons and currently only supports reasoning_effort="max".
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "max",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/kimi-k3.1-pro",
+    name: "Kimi K3.1 Pro (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // ClinePass pricing table (peak): $2.00 in / $10.00 out / $0.20 cached
+    // read / $2.00 (5min) or $4.00 (1h) cache write.
+    cost: { input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite: 2.0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    // Verified live (2026-11-02): the ClinePass gateway accepts
+    // reasoning_effort none/low/medium/high/max and image input, so every
+    // pi level except "minimal" maps directly; pi's "xhigh" maps to the
+    // extra "max" tier.
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "max",
+    },
+  },
+  {
+    id: "cline-pass/muse-spark-1.3-contributor",
+    name: "Muse Spark 1.3 Contributor (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // https://dev.meta.ai/docs/pricing-rate-limits (Contributor tier).
+    // This tier permits Meta to train on prompts/completions.
+    cost: { input: 0.1, output: 0.2, cacheRead: 0.002, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    // Max output from https://openrouter.ai/api/v1/models (Contributor ID).
+    maxTokens: 943_718,
+    // Muse Spark always reasons: reasoning_effort="none" returns HTTP 400,
+    // so "off" is unsupported. Meta's effort enum is minimal/low/medium/
+    // high/xhigh — pi's levels map 1:1. "max" exists upstream but is
+    // standard-tier only, not available on Contributor models, so pi's
+    // "xhigh" maps to "xhigh" rather than "max".
+    thinkingLevelMap: {
+      off: null,
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+    },
+  },
+  {
+    id: "cline-pass/deepseek-v4-pro",
+    name: "DeepSeek V4 Pro (ClinePass)",
+    reasoning: true,
+    input: ["text"],
+    // ClinePass pricing table (peak); the table's off-peak rates are half:
+    // $0.66 input / $1.98 output / $0.022 cached read per 1M tokens.
+    cost: { input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 0 },
+    contextWindow: 1_000_000,
+    maxTokens: 384_000,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "high",
+      xhigh: "high",
+    },
+  },
+  {
+    id: "cline-pass/deepseek-v4.1-flash",
+    name: "DeepSeek V4.1 Flash (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // Upstream peak rates: https://api-docs.deepseek.com/quick_start/pricing
+    // ClinePass's reference table now confirms these rates; off-peak is half.
+    cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+    contextWindow: 1_000_000,
+    maxTokens: 384_000,
+    // Same hybrid reasoning behaviour as the other DeepSeek entries:
+    // thinking can be disabled via effort "none", and pi's xhigh clamps
+    // to the only supported tier, "high".
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "high",
+      xhigh: "high",
+    },
+  },
+  {
+    id: "cline-pass/deepseek-v4.1-flash-1017",
+    name: "DeepSeek V4.1 Flash 1017 (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // Pinned snapshot of DeepSeek V4.1 Flash (build 1017). Peak rates per
+    // ClinePass pricing table; off-peak (16:30-00:30 UTC) is half.
+    cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+    contextWindow: 1_000_000,
+    maxTokens: 384_000,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "high",
+      xhigh: "high",
+    },
+  },
+  {
+    id: "cline-pass/mimo-v2.6-flash",
+    name: "MiMo V2.6 Flash (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // ClinePass pricing table: $0.14 in / $0.28 out / $0.0028 cached read.
+    cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/mimo-v2.6-pro",
+    name: "MiMo V2.6 Pro (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // ClinePass pricing table: $0.435 in / $0.87 out / $0.0036 cached read.
+    cost: { input: 0.435, output: 0.87, cacheRead: 0.0036, cacheWrite: 0 },
+    contextWindow: 262_144,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/minimax-m3",
+    name: "MiniMax M3 (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/minimax-m3.1-flash",
+    name: "MiniMax M3.1 Flash (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // ClinePass pricing table: $0.15 in / $0.60 out / $0.015 cached read.
+    cost: { input: 0.15, output: 0.6, cacheRead: 0.015, cacheWrite: 0 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/qwen3.7-max",
+    name: "Qwen3.7 Max (ClinePass)",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 2.5, output: 7.5, cacheRead: 0.5, cacheWrite: 3.125 },
+    contextWindow: 262_144,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/qwen3.7-plus",
+    name: "Qwen3.7 Plus (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // Qwen3.7 Plus has tiered pricing; we use the ≤256K rate as the default.
+    cost: { input: 0.4, output: 1.6, cacheRead: 0.04, cacheWrite: 0.5 },
+    contextWindow: 1_048_576,
+    maxTokens: 131_072,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+    },
+  },
+  {
+    id: "cline-pass/qwen3.8-max",
+    name: "Qwen3.8 Max (ClinePass)",
+    reasoning: true,
+    input: ["text", "image"],
+    // ClinePass pricing table: $2 input / $6 output / $0.17 cached read /
+    // $2.50 cached write per 1M tokens.
+    cost: { input: 2, output: 6, cacheRead: 0.17, cacheWrite: 2.5 },
+    contextWindow: 1_000_000,
+    maxTokens: 131_072,
+    // qwen3.8-max's reasoning_effort enum is low/medium/xhigh (default xhigh).
+    // Thinking can only be disabled via `enable_thinking: false`, which pi's
+    // openai-completions path never sends — reasoning_effort="none" is out of
+    // enum and silently ignored, leaving thinking on. "off" is therefore
+    // unsupported (null) rather than offered as a no-op, same as Kimi K3.
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: null,
+      xhigh: "xhigh",
+    },
+  },
+];
+
+export const MODELS: readonly ModelConfig[] = MODELS_BASE.map((model) => ({
+  ...model,
+  compat: {
+    ...CLINEPASS_OPENAI_COMPAT,
+    ...model.compat,
+  },
+}));
+
+/**
+ * Return the model IDs registered for the ClinePass provider.
+ */
+export function modelIds(): string[] {
+  return MODELS.map((m) => m.id);
+}

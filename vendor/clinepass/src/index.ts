@@ -1,0 +1,78 @@
+/**
+ * ClinePass Provider for pi
+ *
+ * Adds Cline's ClinePass subscription as a pi provider, giving access to
+ * curated coding models (GLM-5.3, Kimi K3, DeepSeek V4.1 Flash,
+ * and more) through Cline's OpenAI-compatible API.
+ *
+ * ClinePass is a $9.99/month subscription with 2-5x usage versus standard API rates.
+ * See https://docs.cline.bot/getting-started/clinepass
+ *
+ * Setup:
+ *   1. Subscribe at app.cline.bot and create an API key (Settings → API Keys)
+ *   2. Set CLINE_API_KEY env var, run `pi /login` and select ClinePass,
+ *      or sign in with the Cline CLI (`cline auth`) for automatic reuse
+ *   3. Install: pi install git:github.com/jellydn/pi-clinepass-provider
+ *   4. Use /model to select a ClinePass model
+ *
+ * @module pi-clinepass-provider
+ */
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { resolveApiBase, PROVIDER_NAME, ENV_API_KEY } from "./env.ts";
+import { MODELS } from "./models.ts";
+import { handleClinePassError } from "./error-handler.ts";
+import { getApiKey as oauthGetApiKey, login, refreshToken } from "./oauth.ts";
+
+// ClinePass exposes OpenAI-compatible chat completions, but rejects the
+// `developer` role pi-ai uses by default for reasoning models. Every model
+// declares `compat.supportsDeveloperRole: false` in models.ts so system
+// prompts use `system`. Per-model thinkingFormat overrides remain available
+// if a specific upstream model needs them (e.g. compat.thinkingFormat: "zai").
+
+// ─── Extension Entry Point ─────────────────────────────────────────────────
+
+export default async function (pi: ExtensionAPI) {
+  const apiBase = resolveApiBase();
+
+  // Only register the $CLINE_API_KEY sigil when the env var is set at extension
+  // load time. OAuth-only installs should not advertise an unconfigured env-key
+  // fallback; when present, the $… form resolves the secret at request time.
+  const envApiKey = process.env[ENV_API_KEY]?.trim();
+
+  pi.registerProvider(PROVIDER_NAME, {
+    name: "ClinePass",
+    baseUrl: `${apiBase}/api/v1`,
+    ...(envApiKey ? { apiKey: `$${ENV_API_KEY}` } : {}),
+    authHeader: true,
+    // ClinePass uses the standard OpenAI Chat Completions format, so pi's
+    // built-in openai-completions streaming handles SSE + tool calls + usage.
+    // No custom streamSimple is needed (unlike providers with proprietary
+    // protocols such as Command Code's /alpha/generate NDJSON format).
+    api: "openai-completions",
+    oauth: {
+      name: "ClinePass",
+      login,
+      refreshToken,
+      getApiKey: oauthGetApiKey,
+    },
+    // Spread the model object so all fields (including future ones like
+    // `compat` / `thinkingFormat`) propagate to pi automatically. Only
+    // `input` needs transformation: readonly modality array → mutable array.
+    // Registration is explicit: remote catalog entries cannot grant pass
+    // access or replace reviewed limits, prices, and thinking maps.
+    models: MODELS.map((model) => ({
+      ...model,
+      input: [...model.input],
+    })),
+  });
+
+  // ─── Error Surface ─────────────────────────────────────────────────────
+  //
+  // ClinePass returns 403 when the user is not subscribed or tries to use
+  // ClinePass at the organization level (per Cline PR #11355). Without this
+  // handler, the user sees a generic "Provider returned an error stop reason"
+  // message. The handler in error-handler.ts owns the full pipeline:
+  // filter → classify → deliver.
+  pi.on("message_end", handleClinePassError);
+}

@@ -65,6 +65,8 @@ multi-subscription manager and the bundled Gemini App provider.
 - **TUI management**: `/subs`, `/pool`, and `/mp-preset` commands -- no config files needed
 - **Labels**: Tag subscriptions (e.g. "work", "personal")
 - **Gemini App provider**: Native HTTP/2 Gemini App models, `/login gemini-app`, `/gemini-quota`, and multi-account Gemini App subscriptions
+- **ClinePass provider + subscriptions**: Reuses Cline CLI WorkOS credentials or a static API key; extra accounts register as `clinepass-1`, `clinepass-2`, ...
+- **Command Code provider**: Bundled `/alpha/generate` transport for 25 OSS models; API-key only (`COMMANDCODE_API_KEY`)
 - **Live model catalogs**: Subscription providers mirror the base provider's
   merged model catalog (static builtin + remote overlay from
   `models-store.json`) on every model refresh, so newly catalogued models
@@ -97,6 +99,34 @@ native wire format). They are not selectable models here.
 `/login gemini-app` submits acceptance of Google's Gemini Terms of Service for
 the signed-in account. This is unofficial interoperability software, not
 affiliated with Google. Sign in only with an account whose terms you accept.
+
+### ClinePass provider and subscriptions
+
+Bundled from `pi-clinepass-provider` 1.7.0. Base provider id: `clinepass`.
+
+- Auth: reuses Cline CLI WorkOS credentials from
+  `~/.cline/data/settings/providers.json` when present and refreshes the
+  short-lived token; otherwise prompts for a ClinePass API key from
+  `https://app.cline.bot/settings/api-keys`.
+- Models: 15 curated ClinePass models under `cline-pass/...`
+  (GLM-5.3, Kimi K3/K3.1 Pro, DeepSeek V4 Pro/V4.1 Flash, MiniMax M3,
+  Qwen3.7/3.8, and others).
+- Extra accounts: `/subs add clinepass` registers `clinepass-1`,
+  `clinepass-2`, ... with the same catalog.
+- API base override: `CLINE_API_BASE`; default `https://api.cline.bot`.
+
+### Command Code provider
+
+Bundled from `pi-commandcode-provider` 0.1.0. Provider id: `commandcode`.
+
+- API key: `COMMANDCODE_API_KEY` (`user_...` token from
+  `https://commandcode.ai/settings/billing`).
+- Transport: native `POST https://api.commandcode.ai/alpha/generate`
+  (newline-delimited JSON, not SSE).
+- Models: 25 OSS roster entries (DeepSeek V4, Kimi K3/K2.7, GLM-5.x,
+  MiniMax M3/M2.x, Qwen3.x, StepFun, Tencent Hy3, and others).
+- Not a multi-subscription provider: Command Code has no OAuth account axis;
+  adding extra `commandcode` subscriptions is not supported.
 
 ### MiniMax model choices
 

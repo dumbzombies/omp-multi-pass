@@ -2,28 +2,29 @@
 
 ## Goal
 
-Keep `omp-multi-pass` working on pi, pi-bolt, and omp from one codebase, with the
-`authStorage.hasAuth` crash fixed and the Gemini App provider bundled.
+Maintain `omp-multi-pass` on pi, pi-bolt, and omp: multi-account subscriptions, Gemini
+App, ClinePass, and Command Code from one package.
 
 ## Progress
 
-- Live: https://github.com/dumbzombies/omp-multi-pass, public, MIT, branch `main`.
-- Runtime capability detection covers pi/pi-bolt and omp auth, registration, and
-  model-refresh differences.
-- Project config is host-native: `.omp/` for omp, `.pi/` for pi/pi-bolt, other dir fallback.
-- Vendored pi-gemini-app 0.1.8 with LICENSE/DISCLAIMER and omp transcript fallbacks.
-- `gemini-app` subscription template with native models, OAuth, tier filter, stream.
-- Test fixture writes both `models.json` (pi/pi-bolt) and `models.yml` (omp).
-- Verification: all 19 checks pass under omp; both extensions load and `/subs status`
-  succeeds under pi-bolt and pi 1.5.2 with zero `extension_error`.
+- Live repo: https://github.com/dumbzombies/omp-multi-pass, branch `main`, version 1.1.0.
+- `clinepass` is a multi-subscription template (`clinepass-1` ...): WorkOS CLI reuse or
+  static API key, 15 curated models.
+- `commandcode` is bundled as a base provider: `COMMANDCODE_API_KEY`, native
+  `/alpha/generate` NDJSON stream, 25 OSS models. Not multi-account (no OAuth).
+- Package registers four extensions: multi-sub, gemini-app, clinepass, commandcode.
+- Vendored ClinePass relative imports converted `.js` -> `.ts` for direct TS loading.
+- Verification: 19/19 checks pass; omp and pi-bolt load all extensions with zero
+  `extension_error`.
+- Earlier omp install is `omp-multi-pass@1.0.0`; must reinstall after this push.
 
 ## Blockers
 
-None. True byte-identical parity with omp is limited by missing host APIs
-(auth status, provider-config introspection, model refresh composition), not by
-extension code.
+None.
 
 ## Next actions
 
-- Real `/login gemini-app` and a native Gemini turn still need a Google account; not run.
-- Push any further changes to `origin main`.
+- Commit/push 1.1.0, then reinstall in omp: `omp plugin uninstall omp-multi-pass`,
+  `omp install git:github.com/dumbzombies/omp-multi-pass`.
+- Live ClinePass login (`/login clinepass` or WorkOS reuse) and a real Cline request are
+  not exercised (no account); same for Command Code API-key live calls.

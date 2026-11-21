@@ -1,0 +1,220 @@
+# pi-clinepass-provider 🚀
+
+[![npm](https://img.shields.io/npm/v/pi-clinepass-provider)](https://www.npmjs.com/package/pi-clinepass-provider)
+[![npm downloads](https://img.shields.io/npm/dm/pi-clinepass-provider)](https://www.npmjs.com/package/pi-clinepass-provider)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/jellydn/pi-clinepass-provider/workflows/CI/badge.svg)](https://github.com/jellydn/pi-clinepass-provider/actions)
+
+> ClinePass provider for [pi](https://github.com/earendil-works/pi) — 12 curated coding models (GLM-5.3, Kimi K3, DeepSeek V4.1 Flash, Muse Spark 1.3 Contributor, Qwen3.8 Max, and more) through Cline's $9.99/month subscription with 2-5x the usage compared to standard API rates.
+
+ClinePass uses Cline's **OpenAI-compatible Chat Completions API**, so no custom streaming protocol is needed — pi's built-in `openai-completions` streaming handles SSE parsing, tool calls, and usage tracking.
+
+[![Image from Gyazo](https://i.gyazo.com/f157bb2431d7c77556d5748c8b58c7a9.gif)](https://gyazo.com/f157bb2431d7c77556d5748c8b58c7a9)
+
+## 📦 Installation
+
+### As a pi extension (recommended)
+
+```sh
+pi install npm:pi-clinepass-provider
+# or from git
+pi install git:github.com/jellydn/pi-clinepass-provider
+# or local path
+pi install /path/to/pi-clinepass-provider
+```
+
+### As an npm package
+
+```sh
+npm install pi-clinepass-provider
+# or
+pnpm add pi-clinepass-provider
+```
+
+> **Note:** This package requires `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` as peer dependencies. They are automatically available when installed as a pi extension; install them manually when using as a standalone npm dependency.
+
+## Pre-requirements
+
+- [pi](https://github.com/earendil-works/pi) coding agent
+- A [ClinePass](https://docs.cline.bot/getting-started/clinepass) subscription — $9.99/month
+
+## Features
+
+- **Full streaming** via Cline's OpenAI-compatible `/api/v1/chat/completions` endpoint — SSE parsing, tool calls, and usage tracking handled by pi's built-in `openai-completions` streaming
+- **Per-model thinking level support** — maps pi's 6 thinking levels (`off` / `minimal` / `low` / `medium` / `high` / `xhigh`) to provider-specific `reasoning_effort` values, with per-model capability matrices (see table below)
+- **Per-token cost tracking** against ClinePass reference pricing
+- **WorkOS OAuth token refresh** — reuses your existing Cline CLI login (`cline auth`); no separate API key needed
+- **API key auto-discovery** from `CLINE_API_KEY` env var, `~/.cline/data/settings/providers.json`, or `~/.pi/agent/auth.json`
+- **Explicit model catalog** — registers curated models without a startup catalog request; new models, retirements, and metadata changes require a package update
+- **`/login` integration** — automatic WorkOS OAuth detection or browser-assisted manual paste
+- **Modular architecture** — 8 focused source modules (`env`, `auth`, `models`, `workos`, `oauth`, `error-handler`, `errors`, `utils`) + entry point (`index`), all covered by per-module unit tests
+
+## Supported Models
+
+| Model                      | Model ID                                | Context | Input        | Reasoning                                         |
+| :------------------------- | :-------------------------------------- | :------ | :----------- | :------------------------------------------------ |
+| GLM-5.3                    | `cline-pass/glm-5.3`                    | 1M      | text         | low / high / xhigh (xhigh → max; always on)       |
+| GLM-5.3-Flash              | `cline-pass/glm-5.3-flash`              | 1M      | text + image | low / high / xhigh (xhigh → max; always on)       |
+| Kimi K3                    | `cline-pass/kimi-k3`                    | 1M      | text + image | high (max; always on)                             |
+| Kimi K3.1 Pro              | `cline-pass/kimi-k3.1-pro`              | 1M      | text + image | off / low / medium / high / xhigh (xhigh → max)   |
+| Muse Spark 1.3 Contributor | `cline-pass/muse-spark-1.3-contributor` | 1M      | text + image | minimal / low / medium / high / xhigh (always on) |
+| DeepSeek V4 Pro            | `cline-pass/deepseek-v4-pro`            | 1M      | text         | off + high (high used for xhigh)                  |
+| DeepSeek V4.1 Flash        | `cline-pass/deepseek-v4.1-flash`        | 1M      | text + image | off + high (high used for xhigh)                  |
+| DeepSeek V4.1 Flash 1017   | `cline-pass/deepseek-v4.1-flash-1017`   | 1M      | text + image | off + high (high used for xhigh)                  |
+| MiMo V2.6 Flash            | `cline-pass/mimo-v2.6-flash`            | 1M      | text + image | off / low / medium / high                         |
+| MiMo V2.6 Pro              | `cline-pass/mimo-v2.6-pro`              | 262K    | text + image | off / low / medium / high                         |
+| MiniMax M3                 | `cline-pass/minimax-m3`                 | 1M      | text + image | off / low / medium / high                         |
+| MiniMax M3.1 Flash         | `cline-pass/minimax-m3.1-flash`         | 1M      | text + image | off / low / medium / high                         |
+| Qwen3.7 Max                | `cline-pass/qwen3.7-max`                | 262K    | text         | off / low / medium / high                         |
+| Qwen3.7 Plus               | `cline-pass/qwen3.7-plus`               | 1M      | text + image | off / low / medium / high                         |
+| Qwen3.8 Max                | `cline-pass/qwen3.8-max`                | 1M      | text + image | low / medium / xhigh                              |
+
+> **Migration:** This update removes four IDs immediately, in preparation for Cline's announced September 21, 2026 cutoff (12:00 AM PST, as quoted in [#79](https://github.com/jellydn/pi-clinepass-provider/issues/79)). Update saved model selections and scripts: `cline-pass/glm-5.2` → `cline-pass/glm-5.3`; `cline-pass/kimi-k2.7-code` and `cline-pass/kimi-k2.6` → `cline-pass/kimi-k3`; `cline-pass/deepseek-v4-flash` → `cline-pass/deepseek-v4.1-flash`. There are no aliases. Remote catalogs cannot restore retired IDs. The November 2026 lineup refresh additionally replaces the MiMo pair: `cline-pass/mimo-v2.5` → `cline-pass/mimo-v2.6-flash` and `cline-pass/mimo-v2.5-pro` → `cline-pass/mimo-v2.6-pro` (both removed from ClinePass).
+
+> **Contributor data policy:** Muse Spark is a hosted model, not open-weight. Meta's [Contributor tier](https://dev.meta.ai/docs/pricing-rate-limits) permits training on prompts and completions. Check Cline's applicable terms before sending private code or sensitive data; do not assume this tier has the Standard tier's no-training policy.
+
+> **Reference prices are estimates, not bills or exact quota measurements.** ClinePass is a flat subscription. Prices are bundled with this package and do not refresh at startup; they can lag Cline's current rates. The [ClinePass reference table](https://docs.cline.bot/getting-started/clinepass) now lists DeepSeek V4.1 Flash ($0.30 input / $1.20 output / $0.006 cached read per million tokens at peak; off-peak is half), Muse Spark 1.3 Contributor ($0.10 / $0.20 / $0.002), and GLM-5.3-Flash ($0.15 / $0.50 / $0.03). A vendor's API price is not proof of the ClinePass reference price. Remote or null metadata never overrides the curated prices or token limits.
+
+Image input is configured explicitly in the catalog, as shown in the table's Input column. It is not inferred from a live vendor catalog. Images are sent as base64 `image_url` content via pi's built-in `openai-completions` streaming, in the format described by the [Cline API image documentation](https://docs.cline.bot/api/models#image-support). The pass lineup feed supplies no modality metadata. The contributor to [PR #100](https://github.com/jellydn/pi-clinepass-provider/pull/100) reported that all five November 2026 additions accepted `image_url` content against the live gateway; accepting an image payload alone does not prove visual understanding.
+
+Upstream capabilities do not by themselves verify the ClinePass route. Run `CLINE_API_KEY=... npm run test:e2e` with pi installed to check the live path: the image cases attach a known shape-count fixture to eight of the twelve configured image-capable models and require the correct visual answer. The image smoke loop does not cover Kimi K3.1 Pro, DeepSeek V4.1 Flash 1017, MiMo V2.6 Pro, or MiniMax M3.1 Flash; a passing run does not verify those image routes. MiMo-V2.5-Pro is not the multimodal MiMo-V2.5 variant.
+
+Maintainers compare all curated IDs with the `clinePass` bucket of Cline's [first-party lineup feed](https://api.cline.bot/api/v1/ai/cline/recommended-models) before release (`npm run check:catalog`, requires Bun). Cline's [SDK uses this feed](https://github.com/cline/cline/blob/a6507a62a147db4a35e27f4294589742ccac5060/sdk/packages/core/src/services/llms/cline-recommended-models.ts#L265-L301), but it is not an account-entitlement check or a complete metadata API. The generic `/api/v1/models` currently lists vendor IDs, not pass IDs. Vendor presence cannot grant pass access, and feed omissions require review rather than automatic retirement. See the [release checklist](RELEASE_CHECKLIST.md).
+
+> **Thinking levels**: pi supports 6 levels — `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Each model declares which levels it supports, mapped to the provider's `reasoning_effort` parameter. Set the thinking level with pi's `--thinking` flag or `/thinking` command. A level marked as unsupported (not listed above) maps to `null` — no `reasoning_effort` is sent to the API, so the model runs with its default reasoning behavior.
+
+## Authentication
+
+This extension supports **two authentication methods**, tried in order:
+
+### Option 1: Cline CLI Login (WorkOS OAuth — recommended)
+
+If you already use the [Cline CLI](https://docs.cline.bot) (`npm i -g cline`) and have authenticated with `cline auth`, this extension **automatically reuses your login** — no separate API key needed.
+
+Run `pi /login` and select **ClinePass**. The extension detects your WorkOS OAuth credentials from `~/.cline/data/settings/providers.json` and logs you in instantly. Short-lived access tokens (~1 hour) are refreshed automatically via Cline's server-side endpoint.
+
+### Option 2: Static API Key (manual)
+
+1. Subscribe to ClinePass at [app.cline.bot](https://app.cline.bot), go to **Settings → API Keys** and click **Generate API key**. Copy it.
+2. Set the environment variable:
+
+```sh
+echo 'export CLINE_API_KEY="your_key_here"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Alternatively, run `pi /login` and select **ClinePass** — if no Cline CLI login is detected, it opens the Cline dashboard and prompts you to paste a static API key.
+
+<details>
+<summary>💡 How does WorkOS OAuth token refresh work?</summary>
+
+The Cline CLI authenticates via WorkOS OAuth (browser login). The access token is a short-lived JWT (prefixed with `workos:`) that expires after ~1 hour. The refresh token is longer-lived.
+
+This extension refreshes expired tokens by calling Cline's server-side endpoint:
+
+```
+POST https://api.cline.bot/api/v1/auth/refresh
+{"granttype": "refresh_token", "refreshToken": "<your_refresh_token>"}
+```
+
+The response contains a new `accessToken` (with `workos:` prefix) and a rotated `refreshToken`. Both are persisted in pi's auth store for subsequent requests.
+
+If the refresh token expires or is revoked (e.g., you re-login with `cline auth`), simply run `pi /login` again to re-import your fresh credentials.
+
+</details>
+
+## Usage
+
+```sh
+# Non-interactive
+pi --model clinepass/cline-pass/deepseek-v4.1-flash -p "Explain async/await in JavaScript"
+
+# Interactive
+pi --model clinepass/cline-pass/glm-5.3-flash
+
+# List available models
+pi --list-models clinepass
+
+# Use in another project
+cd my-project
+pi --model clinepass/cline-pass/glm-5.3 --trust "Refactor the auth module"
+```
+
+Switch models in-session with `/model clinepass/cline-pass/glm-5.3`.
+
+### Thinking levels
+
+Set the reasoning effort per model using pi's `--thinking` flag or the in-session `/thinking` command:
+
+```sh
+# Use high reasoning with DeepSeek V4 Pro
+pi --model clinepass/cline-pass/deepseek-v4-pro --thinking high -p "Design a scalable microservice architecture"
+
+# GLM-5.3 always reasons; pick low/high/max effort (xhigh → max)
+pi --model clinepass/cline-pass/glm-5.3 --thinking xhigh -p "Solve this complex math proof"
+
+# GLM-5.3-Flash: same always-on reasoning as GLM-5.3, much cheaper
+pi --model clinepass/cline-pass/glm-5.3-flash --thinking xhigh -p "Refactor this monolith into services"
+
+# Muse Spark 1.3 Contributor supports minimal through xhigh (always on)
+pi --model clinepass/cline-pass/muse-spark-1.3-contributor --thinking medium -p "Write a React form component"
+
+# Disable reasoning for a quick code gen task
+pi --model clinepass/cline-pass/deepseek-v4.1-flash --thinking off -p "Write a React form component"
+```
+
+Each model's supported thinking levels are listed in the [Supported Models](#supported-models) table above. Unsupported levels are not sent to the API — the model runs with its default reasoning behavior.
+
+## Run tests
+
+```sh
+npm test
+```
+
+## Pre-commit
+
+This project uses [prek](https://github.com/earendil-works/prek) to enforce code quality. To install hooks:
+
+```sh
+prek install
+```
+
+## Notes
+
+- **Pricing**: ClinePass is a flat $9.99/month subscription. Per-token costs in the model table are reference values for usage tracking only.
+- **Context windows**: estimates from ClinePass docs — verify against Cline's `/models` endpoint.
+- **Custom API base**: set `CLINE_API_BASE` env var to override the endpoint (default: `https://api.cline.bot`).
+
+## Resources
+
+- **[opencode-clinepass-provider](https://github.com/haconglinh1990/opencode-clinepass-provider)** — ClinePass provider for [OpenCode](https://github.com/sst/opencode); same subscription and models outside of pi.
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+## Author
+
+👤 **Huynh Duc Dung**
+
+- Website: https://productsway.com/
+- Twitter: [@jellydn](https://twitter.com/jellydn)
+- Github: [@jellydn](https://github.com/jellydn)
+
+## Show your support
+
+Give a ⭐️ if this project helped you!
+
+<a href="https://ko-fi.com/dunghd">
+  <img src="https://img.shields.io/badge/ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="ko-fi">
+</a>
+<a href="https://paypal.me/dunghd">
+  <img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal">
+</a>
+<a href="https://www.buymeacoffee.com/dunghd">
+  <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee">
+</a>
