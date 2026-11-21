@@ -37,7 +37,7 @@ assert.match(
 assert.match(source, /if \(credential\.expires > Date\.now\(\) \+ TOKEN_KEEPER_LEAD_MS\) continue;/);
 assert.match(source, /tokenKeeperTimer = setInterval\(\(\) => void tick\(\), TOKEN_KEEPER_INTERVAL_MS\);/);
 assert.match(source, /tokenKeeperTimer\.unref\?\.\(\);/);
-assert.match(source, /export default function multiSub\(pi: ExtensionAPI\) \{\n\tstartTokenKeeper\(\);/);
+assert.match(source, /export default async function multiSub\(pi: ExtensionAPI\) \{\n\tstartTokenKeeper\(\);/);
 
 // auth.json stays behind one locked read-modify-write helper.
 assert.equal(source.match(/lockfile\.lock\(/g)?.length, 1);

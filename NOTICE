@@ -6,7 +6,8 @@ by hjanuschka, used under the MIT License. See `LICENSE`.
 It bundles [gemini-app2api / pi-gemini-app](https://github.com/ShawTim/gemini-app2api)
 by ShawTim, [pi-clinepass-provider](https://github.com/jellydn/pi-clinepass-provider)
 by jellydn, and [pi-commandcode-provider](https://github.com/safzanpirani/pi-commandcode-provider)
-by safzanpirani, all used under the MIT License. The vendored copies live in
+by safzanpirani, [kilo-pi-provider](https://github.com/Kilo-Org/kilo-pi-provider)
+by Kilo Org, all used under the MIT License. The vendored copies live in
 `vendor/` and keep their original `LICENSE` and (for gemini-app2api)
 `DISCLAIMER.md`.
 
@@ -21,5 +22,9 @@ Changes in this fork:
   (`clinepass-1`, `clinepass-2`, ...), with WorkOS CLI credential reuse.
 - ClinePass error handler also matches subscription provider ids.
 - Command Code provider bundled as-is (`commandcode`); it is API-key only.
+- Kilo provider bundled under `vendor/kilo`: device OAuth, live gateway
+  catalog, and per-account `kilo-1`, `kilo-2`, ... subscriptions. Adapted for
+  older pi-ai hosts (no `normalizeContext`, no custom built-in API, no
+  `stripTerminalSequences`, no TypeBox dependency).
 
 Upstream projects are not affiliated with this fork.

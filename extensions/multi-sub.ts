@@ -54,6 +54,9 @@ import { createGeminiStreamHandler } from "../vendor/gemini-app2api/extensions/p
 import { MODELS as CLINEPASS_MODELS } from "../vendor/clinepass/src/models.ts";
 import { resolveApiBase } from "../vendor/clinepass/src/env.ts";
 import { getApiKey as clinepassGetApiKey, login as clinepassLogin, refreshToken as clinepassRefreshToken } from "../vendor/clinepass/src/oauth.ts";
+import { fetchKiloModelCatalog, KILO_GATEWAY_BASE } from "../vendor/kilo/src/api.ts";
+import { getEffectiveOrganizationId, loginKilo, refreshKiloToken } from "../vendor/kilo/src/auth.ts";
+import { mergeKiloCatalogModels, selectKiloCatalogModels, type KiloChatModelConfig } from "../vendor/kilo/src/models.ts";
 import { basename, dirname, isAbsolute, join } from "path";
 import { pathToFileURL } from "url";
 import type {
@@ -159,6 +162,26 @@ const clinepassModels = CLINEPASS_MODELS.map((model) => ({
 	baseUrl: `${resolveApiBase()}/api/v1`,
 	api: "openai-completions",
 })) as unknown as Model<Api>[];
+
+const KILO_HEADERS = {
+	"X-KILOCODE-EDITORNAME": "Pi",
+	"User-Agent": "pi-kilo-provider",
+};
+
+/** Fetched at registration/login; shared by Kilo subscription accounts. */
+let kiloCatalog: KiloChatModelConfig[] = [];
+let kiloCatalogLoad: Promise<KiloChatModelConfig[]> | undefined;
+
+async function loadKiloModels(): Promise<Model<Api>[]> {
+	kiloCatalogLoad ??= fetchKiloModelCatalog({}).then((catalog) => selectKiloCatalogModels(catalog, {}));
+	try {
+		kiloCatalog = await kiloCatalogLoad;
+	} catch (error) {
+		kiloCatalogLoad = undefined;
+		throw error;
+	}
+	return kiloCatalog as unknown as Model<Api>[];
+}
 
 /**
  * Catalog lookup for a provider name. Extension-provided ids (e.g.
@@ -352,7 +375,11 @@ function getGitHubCopilotBaseUrl(token: string | undefined, enterpriseUrl: strin
 interface ProviderTemplate {
 	displayName: string;
 	apiKey?: string;
+	api?: string;
 	baseUrl?: string;
+	headers?: Record<string, string>;
+	models?: Model<Api>[];
+	loadModels?(): Promise<Model<Api>[]>;
 	usesCallbackServer?: boolean;
 	/** Catalog for extension-provided providers absent from the pi-ai builtin list. */
 	models?: Model<Api>[];
@@ -489,6 +516,43 @@ const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
 				login: (callbacks: OAuthLoginCallbacks) => clinepassLogin(callbacks),
 				refreshToken: (credentials: OAuthCredentials) => clinepassRefreshToken(credentials),
 				getApiKey: (credentials: OAuthCredentials) => clinepassGetApiKey(credentials),
+			};
+		},
+	},
+
+	// Kilo Gateway: free models without auth, full gateway catalog after device
+	// login. One Kilo account/org per subscription keeps pools load-balanced.
+	kilo: {
+		displayName: "Kilo",
+		apiKey: "$KILO_API_KEY",
+		baseUrl: KILO_GATEWAY_BASE,
+		headers: KILO_HEADERS,
+		loadModels: loadKiloModels,
+		buildOAuth(index: number) {
+			return {
+				name: `Kilo #${index}`,
+				isSubscription: true,
+				login: (callbacks: OAuthLoginCallbacks) => loginKilo(callbacks),
+				refreshToken: (credentials: OAuthCredentials) => refreshKiloToken(credentials),
+				getApiKey: (credentials: OAuthCredentials) => credentials.access,
+			};
+		},
+		buildModifyModels(name: string) {
+			return (models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[] => {
+				// mergeKiloCatalogModels keys its template off provider "kilo";
+				// subscription models are already tagged "<provider>-<n>".
+				const normalized = models.map((model) =>
+					model.provider === name ? { ...model, provider: "kilo" } : model,
+				);
+				return mergeKiloCatalogModels(
+					normalized,
+					kiloCatalog,
+					getEffectiveOrganizationId(credentials),
+				).map((model) => ({
+					...model,
+					headers: { ...KILO_HEADERS, ...model.headers },
+					provider: model.provider === "kilo" ? name : model.provider,
+				}));
 			};
 		},
 	},
@@ -3014,6 +3078,7 @@ function cloneModelList(models: readonly Model<Api>[], index: number, entry?: Su
 		id: m.id,
 		name: entry ? subModelName(entry, m.name) : `${m.name} (#${index})`,
 		api: m.api,
+		baseUrl: m.baseUrl,
 		reasoning: m.reasoning,
 		thinkingLevelMap: m.thinkingLevelMap ? { ...m.thinkingLevelMap } : undefined,
 		input: m.input as ("text" | "image")[],
@@ -3144,7 +3209,7 @@ function providerModelChoices(ctx: ExtensionContext | ExtensionCommandContext, p
 // Register a single subscription as a provider
 // ==========================================================================
 
-function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
+async function registerSub(pi: ExtensionAPI, entry: SubEntry): Promise<void> {
 	const template = PROVIDER_TEMPLATES[entry.provider];
 	if (!template) return;
 
@@ -3160,9 +3225,21 @@ function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
 				: defaultRefresh(credentials, signal);
 	}
 	const modifyModels = oauth ? template.buildModifyModels?.(name) : undefined;
-	const sourceModels = subscriptionCatalog(entry.provider).map((entry) => entry.model);
+	let sourceModels = subscriptionCatalog(entry.provider).map((item) => item.model);
+	if (sourceModels.length === 0 && template.loadModels) {
+		try {
+			sourceModels = await template.loadModels();
+		} catch (error) {
+			console.warn(`[multi-pass] Failed to load ${entry.provider} models:`, error);
+			sourceModels = template.models ?? [];
+		}
+	}
 	const baseUrl = template.baseUrl || sourceModels[0]?.baseUrl || "";
-	const models = cloneModelList(sourceModels, entry.index, entry);
+	const models = cloneModelList(sourceModels, entry.index, entry).map((model) =>
+		template.headers
+			? { ...model, headers: { ...model.headers, ...template.headers } }
+			: model,
+	);
 
 	mirroredCatalogs.set(name, sourceModels.map((model, index) => ({
 		origin: "builtin",
@@ -3175,7 +3252,7 @@ function registerSub(pi: ExtensionAPI, entry: SubEntry): void {
 		// available for future UI (e.g. an upstream /model badge fix).
 		name: subDisplayName(entry),
 		baseUrl,
-		api: sourceModels[0]?.api,
+		api: template.api ?? sourceModels[0]?.api,
 		apiKey: template.apiKey,
 		oauth: oauth && modifyModels ? { ...oauth, modifyModels } : oauth,
 		models,
@@ -4512,7 +4589,7 @@ async function renameSubscriptionLabel(
 		return;
 	}
 
-	registerSub(pi, entry);
+	await registerSub(pi, entry);
 	ctx.modelRegistry.refresh();
 
 	ctx.ui.notify(`Updated ${previousName} -> ${nextName}`, "info");
@@ -4967,7 +5044,7 @@ async function handleSubsAdd(pi: ExtensionAPI, ctx: ExtensionCommandContext): Pr
 	config.subscriptions.push(entry);
 	saveGlobalConfig(config);
 
-	registerSub(pi, entry);
+	await registerSub(pi, entry);
 	ctx.modelRegistry.refresh();
 
 	const loginNow = await ctx.ui.confirm(
@@ -7983,7 +8060,7 @@ async function handleSubsStatusbar(ctx: ExtensionCommandContext): Promise<void> 
 // Extension entry point
 // ==========================================================================
 
-export default function multiSub(pi: ExtensionAPI) {
+export default async function multiSub(pi: ExtensionAPI) {
 	startTokenKeeper();
 
 	const config = loadGlobalConfig();
@@ -7992,7 +8069,7 @@ export default function multiSub(pi: ExtensionAPI) {
 
 	// Register all subscriptions (always global)
 	for (const entry of all) {
-		registerSub(pi, entry);
+		await registerSub(pi, entry);
 	}
 
 	// Initialize pool manager with global pools (updated on session_start with project config)

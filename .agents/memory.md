@@ -155,3 +155,23 @@
   it uses `/alpha/generate`, not the Provider-plan `/provider/v1/*` generation endpoints.
 - Version 1.2.0; installed in omp. Verification: 19/19 tests, omp and pi-bolt load all
   four extensions with zero `extension_error`, `/subs status` success.
+
+## 2026-11-21 — Kilo provider and multi-account support
+
+- Vendored `Kilo-Org/kilo-pi-provider` under `vendor/kilo`; base provider id
+  `kilo`, extra accounts `kilo-1..n` via the existing subscription/pool machinery
+  (no new balancing code).
+- Kilo has no static catalog: `selectKiloCatalogModels(fetchKiloModelCatalog({}), {})`
+  runs at registration. The default export became async; keep the `await` in every
+  host/test call site.
+- Older pi-ai hosts (omp 0.82) lack `normalizeContext`, `openAIResponsesApi`, and
+  `stripTerminalSequences`; register a custom stream only when
+  `compat.openAIResponsesApi` exists. Otherwise the native Responses transport is
+  used and `streamSimple`/`api` are omitted because built-in API names are reserved.
+- TypeBox is not usable from the host runtime (`Type.String` missing), so Kilo
+  config/usage parsing is plain runtime narrowing.
+- `mergeKiloCatalogModels` expects template models with `provider === "kilo"`;
+  normalize `kilo-N` models before merging and restore the provider id after.
+  Re-apply `KILO_HEADERS` because the merge replaces per-model headers.
+- `KILO_ORG_ID` / stored OAuth `accountId` becomes `X-Kilo-Organization-Id` in the
+  merged model headers.

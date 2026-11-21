@@ -37,8 +37,9 @@ Or from a local clone:
 omp install /path/to/omp-multi-pass   # or: pi install /path/to/omp-multi-pass
 ```
 
-Restart the host after installing. The package registers two extensions: the
-multi-subscription manager and the bundled Gemini App provider.
+Restart the host after installing. The package registers five extensions: the
+multi-subscription manager plus the bundled Gemini App, ClinePass, Command
+Code, and Kilo providers.
 
 ## Host differences
 
@@ -68,6 +69,7 @@ multi-subscription manager and the bundled Gemini App provider.
 - **ClinePass provider + subscriptions**: Reuses Cline CLI WorkOS credentials or a static API key; extra accounts register as `clinepass-1`, `clinepass-2`, ...
 - **Cline account provider**: Standard Cline login/credits, 17 frontier models (GLM 5.2, Grok 4.5, GPT-5.6 Sol, Kimi K3, Claude Opus 4.8, MiniMax M3, free tier), `cline-1`, `cline-2`, ...
 - **Command Code provider**: Bundled `/alpha/generate` transport for 25 OSS models; API-key only (`COMMANDCODE_API_KEY`)
+- **Kilo provider + subscriptions**: Device-code OAuth against Kilo Gateway, live 471-model catalog, `kilo-1`, `kilo-2`, ... accounts
 - **Live model catalogs**: Subscription providers mirror the base provider's
   merged model catalog (static builtin + remote overlay from
   `models-store.json`) on every model refresh, so newly catalogued models
@@ -145,6 +147,27 @@ Bundled from `pi-commandcode-provider` 0.1.0. Provider id: `commandcode`.
   MiniMax M3/M2.x, Qwen3.x, StepFun, Tencent Hy3, and others).
 - Not a multi-subscription provider: Command Code has no OAuth account axis;
   adding extra `commandcode` subscriptions is not supported.
+
+### Kilo provider and subscriptions (`kilo`)
+
+Bundled from [`Kilo-Org/kilo-pi-provider`](https://github.com/Kilo-Org/kilo-pi-provider).
+Base provider id: `kilo`.
+
+- Auth: device-code OAuth via `/login kilo` (browser/device flow), with token
+  refresh. Extra accounts use `/subs add kilo` and register `kilo-1`,
+  `kilo-2`, ...; each account is a separate pool member, so existing
+  round-robin/quota-first/failover logic load-balances accounts.
+- Models: fetched live from `https://api.kilo.ai/api/gateway/models` at
+  registration and login; the full gateway catalog (mixed
+  `openai-responses` and `openai-completions` transports) replaces the free
+  baseline. No static model list is pinned.
+- Headers: `X-KILOCODE-EDITORNAME: Pi`, `User-Agent: pi-kilo-provider`.
+- Organization scoping: `KILO_ORG_ID` or the stored OAuth organization id is
+  applied through `X-Kilo-Organization-Id` when the host supports custom
+  transports. Older pi-ai (omp 0.82) reserves built-in API names, so the
+  extension falls back to the native Responses stream and per-model headers.
+- API base override: `KILO_API_URL`; default `https://api.kilo.ai`.
+- Usage: `/kilo-usage` shows gateway spend for the signed-in account.
 
 ### MiniMax model choices
 

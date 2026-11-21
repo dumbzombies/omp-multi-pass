@@ -1,6 +1,6 @@
 {
   "name": "omp-multi-pass",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Multi-subscription extension for oh-my-pi (omp) -- use multiple OAuth accounts per provider (Anthropic, Codex, Copilot, Gemini, Antigravity, Gemini App)",
   "keywords": [
     "omp-package",
@@ -45,7 +45,8 @@
       "./extensions",
       "./vendor/gemini-app2api/extensions/pi/index.js",
       "./vendor/clinepass/src/index.ts",
-      "./vendor/commandcode/index.ts"
+      "./vendor/commandcode/index.ts",
+      "./vendor/kilo/src/index.ts"
     ]
   },
   "dependencies": {

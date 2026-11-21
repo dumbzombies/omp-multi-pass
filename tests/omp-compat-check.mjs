@@ -29,7 +29,7 @@ const pi = new Proxy({}, {
 });
 
 const mod = await import("../extensions/multi-sub.ts");
-mod.default(pi);
+await mod.default(pi);
 
 assert.ok(commands.has("subs"), "/subs registered");
 
@@ -76,20 +76,52 @@ await commands.get("subs").handler("list", staleCtx);
 assert.ok(notes.length > 0, "stale authStorage list produced a notification");
 assert.doesNotMatch(JSON.stringify(notes), /hasAuth is not a function/);
 
+// Kilo has no static catalog: registration fetches the gateway catalog.
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+	if (String(input).includes("api.kilo.ai/api/gateway/models")) {
+		return new Response(JSON.stringify({
+			data: [{
+				id: "kilo/test-model",
+				name: "Kilo Test",
+				context_length: 128000,
+				top_provider: { max_completion_tokens: 4096 },
+				pricing: { prompt: "0", completion: "0" },
+				architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+				supported_parameters: [],
+			}],
+		}), { status: 200, headers: { "content-type": "application/json" } });
+	}
+	return realFetch(input, init);
+};
+
 // Gemini App subscription is registered from the bundled catalog.
 writeFileSync(join(agentDir, "multi-pass.json"), JSON.stringify({
 	subscriptions: [
 		{ provider: "gemini-app", index: 1, label: "gem" },
 		{ provider: "clinepass", index: 1, label: "cline" },
 		{ provider: "cline", index: 1, label: "credits" },
+		{ provider: "kilo", index: 1, label: "k" },
 	],
 	pools: [],
 	chains: [],
 	presets: [],
 }));
-mod.default(pi);
+await mod.default(pi);
 const registered = providers.get("gemini-app-1");
 assert.ok(registered, "gemini-app-1 registered");
+
+// Kilo subscription: dynamic catalog, native Responses API, gateway headers.
+const kilo = providers.get("kilo-1");
+assert.ok(kilo, "kilo-1 registered");
+assert.equal(kilo.baseUrl, "https://api.kilo.ai/api/gateway");
+assert.deepEqual(kilo.models.map((m) => m.id), ["kilo/test-model"]);
+assert.equal(kilo.models[0].api, "openai-completions");
+assert.equal(kilo.models[0].headers["X-KILOCODE-EDITORNAME"], "Pi");
+assert.equal(kilo.streamSimple, undefined, "older hosts reject custom built-in APIs");
+assert.equal(typeof kilo.oauth.login, "function");
+assert.equal(kilo.oauth.getApiKey({ access: "x" }), "x");
+globalThis.fetch = realFetch;
 assert.deepEqual(registered.models.map((m) => m.id), [
 	"gemini-neon",
 	"gemini-hydrogen",

@@ -4,13 +4,15 @@
 
 `omp-multi-pass` is an extension for **pi**, **pi-bolt**, and **oh-my-pi (omp)**. It manages
 multiple OAuth subscriptions per provider (Anthropic, Codex, Copilot, Google, Antigravity,
-MiniMax, Gemini App, ClinePass, Cline), plus rotation pools, fallback chains, model presets,
+MiniMax, Gemini App, ClinePass, Cline, Kilo), plus rotation pools, fallback chains, model presets,
 project restrictions, limits checks, routing traces, and offline OAuth sharing. It also
-bundles the Command Code provider (API-key only).
+bundles the Command Code provider (API-key only) and Kilo Gateway.
 
 It is a fork of [hjanuschka/pi-multi-pass](https://github.com/hjanuschka/pi-multi-pass)
-and bundles [ShawTim/gemini-app2api](https://github.com/ShawTim/gemini-app2api) as a second
-extension. MIT; attribution in `NOTICE`.
+and bundles [ShawTim/gemini-app2api](https://github.com/ShawTim/gemini-app2api),
+[jellydn/pi-clinepass-provider](https://github.com/jellydn/pi-clinepass-provider),
+[safzanpirani/pi-commandcode-provider](https://github.com/safzanpirani/pi-commandcode-provider),
+and [Kilo-Org/kilo-pi-provider](https://github.com/Kilo-Org/kilo-pi-provider). MIT; attribution in `NOTICE`.
 
 ## Architecture & Data Flow
 
@@ -44,6 +46,9 @@ host factory -> load config -> register subscription providers -> runtime routin
   `cline` account template (17 frontier models, OmniRoute-style).
 - `vendor/commandcode/index.ts` registers `commandcode` with a custom NDJSON
   `/alpha/generate` stream. It is API-key only and is not a subscription template.
+- `vendor/kilo/src/index.ts` registers `kilo` with device-code OAuth and a live
+  gateway catalog. `extensions/multi-sub.ts` adds `kilo-N` subscriptions that
+  load the same catalog and merge organization headers per account.
 
 ## Key Directories
 
@@ -55,6 +60,7 @@ host factory -> load config -> register subscription providers -> runtime routin
 | `vendor/gemini-app2api/` | Vendored Gemini App extension, `src/`, LICENSE, DISCLAIMER |
 | `vendor/clinepass/` | Vendored pi-clinepass-provider; relative imports changed `.js` -> `.ts` |
 | `vendor/commandcode/` | Vendored pi-commandcode-provider; index.ts, docs, LICENSE |
+| `vendor/kilo/` | Vendored Kilo provider; device OAuth, gateway catalog, LICENSE |
 | `tests/` | Plain Node check scripts, no test framework |
 | `tests/fixtures/` | RPC model fixture and MiniMax routing fixture |
 | `docs/` | Share protocol and header SVG |
@@ -89,8 +95,9 @@ tests rely on Node type stripping. Host packages (`@earendil-works/pi-ai`,
   `models-store.json` overlay; extension providers without a builtin catalog use
   `PROVIDER_TEMPLATES[provider].models`.
 - Keep vendored upstream files intact except documented adapters in
-  `vendor/gemini-app2api/extensions/pi/index.js` and ClinePass's `.js` -> `.ts`
-  relative imports. The secret split in `vendor/gemini-app2api/src/gateway/oauth-client-defaults.mjs`
+  `vendor/gemini-app2api/extensions/pi/index.js`, ClinePass's `.js` -> `.ts`
+  relative imports, and Kilo's older-pi-ai fallbacks (no TypeBox, no custom
+  built-in API, local `stripTerminalSequences`, no `normalizeContext`). The secret split in `vendor/gemini-app2api/src/gateway/oauth-client-defaults.mjs`
   must stay split.
 - Do not commit secrets or merge the split public OAuth client secret literal.
 
@@ -104,6 +111,7 @@ tests rely on Node type stripping. Host packages (`@earendil-works/pi-ai`,
 | `vendor/gemini-app2api/extensions/pi/index.js` | omp adapter for transcript helpers |
 | `vendor/clinepass/src/oauth.ts` | ClinePass WorkOS/API-key login and refresh |
 | `vendor/commandcode/index.ts` | Command Code NDJSON stream transport |
+| `vendor/kilo/src/` | Kilo device OAuth, catalog mapping, Responses transport |
 | `tests/fixtures/test-model.mjs` | Dummy `test/dummy` provider; writes `models.json` and `models.yml` |
 | `tests/fixtures/minimax-choices.ts` | RPC fixture for routing/model-selection tests |
 | `NOTICE` | Upstream attribution |
@@ -123,7 +131,7 @@ tests rely on Node type stripping. Host packages (`@earendil-works/pi-ai`,
 - Tests spawn the host in RPC mode with `--offline`, a temp `PI_CODING_AGENT_DIR`,
   dummy `test/dummy` model, and explicit extensions.
 - `tests/omp-compat-check.mjs` reproduces both broken `authStorage` shapes and asserts
-  Gemini App base/subscription registration.
+  Gemini App and Kilo base/subscription registration.
 - RPC tests currently spawn `omp`; pi/pi-bolt compatibility is verified manually by
   loading both extensions and running `/subs status`.
 - Live Google login, native Gemini turns, and real provider calls are not tested
