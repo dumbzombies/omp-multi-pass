@@ -128,3 +128,12 @@
 - Verification: all 19 checks pass; omp and pi-bolt load all four extensions with zero
   `extension_error`; installed-package diff and live RPC `/subs status` succeeded before
   the Cline/CommandCode additions; reinstall needed after push for the new extensions.
+
+## 2026-11-21 — Installed 1.1.0
+
+- omp plugin reinstalled from `git:github.com/dumbzombies/omp-multi-pass` at commit
+  `0d517a5`; installed version `1.1.0`.
+- Installed payload includes `vendor/clinepass/src/index.ts` and
+  `vendor/commandcode/index.ts`.
+- Live omp RPC with installed plugins: exit 0, zero `extension_error`,
+  `/subs status` success.
