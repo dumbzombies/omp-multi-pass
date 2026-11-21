@@ -29,9 +29,8 @@ try {
 		presets: [{ name: "legacy", entries: [{ provider: "minimax-2", model: "MiniMax-M2.7", enabled: true }], enabled: true }],
 	}));
 	const child = spawn("omp", [
-		"--mode", "rpc", "--model", TEST_MODEL, "--offline", "--no-extensions", "--no-skills",
-		"--no-context-files", "--extension",
-		join(root, "tests", "fixtures", "minimax-choices.ts"),
+		"--mode", "rpc", "--model", TEST_MODEL, "--no-extensions", "--no-skills",
+		"--extension", join(root, "tests", "fixtures", "minimax-choices.ts"),
 	], { cwd: root, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir } });
 	let stdout = "", stderr = "";
 	const status = await new Promise((resolve, reject) => {

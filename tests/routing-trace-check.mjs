@@ -34,10 +34,8 @@ try {
 		[
 			"--mode", "rpc",
 			"--model", TEST_MODEL,
-			"--offline",
 			"--no-extensions",
 			"--no-skills",
-			"--no-context-files",
 			"--extension", join(root, "extensions", "multi-sub.ts"),
 		],
 		{

@@ -58,6 +58,7 @@ import { fetchKiloModelCatalog, KILO_GATEWAY_BASE } from "../vendor/kilo/src/api
 import { getEffectiveOrganizationId, loginKilo, refreshKiloToken } from "../vendor/kilo/src/auth.ts";
 import { mergeKiloCatalogModels, selectKiloCatalogModels, type KiloChatModelConfig } from "../vendor/kilo/src/models.ts";
 import { basename, dirname, isAbsolute, join } from "path";
+import { spawn } from "child_process";
 import { pathToFileURL } from "url";
 import type {
 	ExtensionAPI,
@@ -616,6 +617,24 @@ interface AuthStorageCompat {
 	hasAuth(provider: string): boolean;
 	get(provider: string): AuthStorageEntry | undefined;
 	logout(provider: string): Promise<void>;
+	/** oh-my-pi stores credentials in agent.db, not auth.json. */
+	saveOAuth?(provider: string, credential: AuthStorageEntry): Promise<void>;
+}
+
+interface HostCredentialStore {
+	get(provider: string): AuthStorageEntry | undefined;
+	has?(provider: string): boolean;
+	set?(provider: string, credential: AuthStorageEntry): Promise<unknown> | unknown;
+	upsert?(provider: string, credential: AuthStorageEntry): Promise<unknown> | unknown;
+	upsertOAuth?(provider: string, credential: AuthStorageEntry): Promise<unknown>;
+	remove?(provider: string): Promise<unknown>;
+}
+
+function getHostCredentialStore(authStorage: unknown): HostCredentialStore | undefined {
+	if (!authStorage || typeof authStorage !== "object" || !("credentials" in authStorage)) return undefined;
+	const store = authStorage.credentials;
+	if (!store || typeof store !== "object" || !("get" in store) || typeof store.get !== "function") return undefined;
+	return store as HostCredentialStore;
 }
 
 /**
@@ -640,6 +659,22 @@ function getAuthStorage(ctx: ExtensionContext | ExtensionCommandContext): AuthSt
 		getProviderAuthStatus?(provider: string): { configured?: boolean };
 	};
 	const candidate = "authStorage" in ctx ? ctx.authStorage : registry.authStorage;
+	const store = getHostCredentialStore(candidate);
+	if (store) {
+		return {
+			hasAuth: (provider) => (typeof store.has === "function" ? store.has(provider) : store.get(provider) !== undefined),
+			get: (provider) => store.get(provider),
+			logout: async (provider) => {
+				if (typeof store.remove === "function") await store.remove(provider);
+				await removeStoredCredential(provider);
+			},
+			saveOAuth: typeof store.upsertOAuth === "function"
+				? async (provider, credential) => {
+					await store.upsertOAuth?.(provider, credential);
+				}
+				: undefined,
+		};
+	}
 	if (isAuthStorageCompat(candidate)) {
 		const logout = typeof candidate.logout === "function"
 			? candidate.logout.bind(candidate)
@@ -774,6 +809,64 @@ function baseProviderForAccount(account: string): string | undefined {
 
 const refreshesInFlight = new Map<string, Promise<OAuthCredentials>>();
 
+let activeHostCredentials: HostCredentialStore | undefined;
+
+/** oh-my-pi reads credentials from agent.db, so keeper rotations must land there too. */
+async function mirrorCredentialToHost(account: string, credential: AuthStorageEntry): Promise<void> {
+	const store = activeHostCredentials;
+	if (!store) return;
+	try {
+		const existing = store.get(account) ?? {};
+		const merged = { ...existing, ...credential };
+		if (typeof store.upsert === "function") await store.upsert(account, merged);
+		else if (typeof store.set === "function") await store.set(account, merged);
+		else if (typeof store.upsertOAuth === "function" && merged.type === "oauth") {
+			await store.upsertOAuth(account, merged);
+		}
+	} catch {
+		// The auth.json copy remains authoritative for pi hosts.
+	}
+}
+
+/** Migrate auth.json-only logins into a host credential database on startup. */
+async function syncAuthFileToHost(store: HostCredentialStore | undefined): Promise<void> {
+	if (!store) return;
+	let stored: AuthFile;
+	try {
+		stored = readAuthFile();
+	} catch {
+		return;
+	}
+	for (const [account, credential] of Object.entries(stored)) {
+		if (!credential || typeof credential !== "object") continue;
+		const existing = store.get(account);
+		if (isOAuthEntry(credential)) {
+			if (existing?.type === "oauth"
+				&& typeof existing.expires === "number"
+				&& existing.expires >= credential.expires) continue;
+			try {
+				if (typeof store.upsertOAuth === "function") {
+					await store.upsertOAuth(account, credential);
+				} else if (typeof store.upsert === "function") {
+					await store.upsert(account, credential);
+				} else if (typeof store.set === "function") {
+					await store.set(account, credential);
+				}
+			} catch {
+				// Keep going; another account may still sync.
+			}
+			continue;
+		}
+		if (existing) continue;
+		try {
+			if (typeof store.set === "function") await store.set(account, credential);
+			else if (typeof store.upsert === "function") await store.upsert(account, credential);
+		} catch {
+			// Keep going; another account may still sync.
+		}
+	}
+}
+
 /**
  * Refresh `account` and store the rotated credential in the same locked
  * transaction. Anthropic and OpenAI invalidate the old refresh token the
@@ -804,6 +897,10 @@ function keepFreshCredential(
 		);
 		stored[account] = { ...current, ...refreshed, type: "oauth" };
 		return { value: refreshed, changed: true };
+	}).then(async (refreshed) => {
+		const merged = readAuthFile()[account];
+		if (merged) await mirrorCredentialToHost(account, merged);
+		return refreshed;
 	}).finally(() => refreshesInFlight.delete(account));
 
 	refreshesInFlight.set(account, run);
@@ -1285,82 +1382,18 @@ async function showWrappedSelect(
 ): Promise<string | undefined> {
 	if (options.items.length === 0) return undefined;
 
-	if (!ctx.hasUI) {
-		const renderedItems = options.items.map((item) =>
-			item.description ? `${item.label} — ${item.description}` : item.label,
-		);
-		const selected = await ctx.ui.select(options.title, renderedItems);
-		if (!selected) return undefined;
-		const index = renderedItems.indexOf(selected);
-		return index >= 0 ? options.items[index]?.value : undefined;
-	}
-
-	const confirmHint = options.confirmHint || "select";
-	const cancelHint = options.cancelHint || "close";
-
-	const selectedValue = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-		const container = new Container();
-		const footer = [
-			keyHint("tui.select.confirm", confirmHint),
-			keyHint("tui.select.cancel", cancelHint),
-		].join(" • ");
-
-		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		container.addChild(new Text(theme.fg("accent", theme.bold(options.title))));
-		if (options.subtitle) {
-			container.addChild(new Text(theme.fg("dim", options.subtitle)));
-		}
-
-		const selectList = new SelectList(options.items, Math.min(options.items.length, 10), {
-			selectedPrefix: (text) => theme.fg("accent", text),
-			selectedText: (text) => theme.fg("accent", text),
-			description: (text) => theme.fg("muted", text),
-			scrollInfo: (text) => theme.fg("dim", text),
-			noMatch: (text) => theme.fg("warning", text),
-		});
-		selectList.setSelectedIndex(getWrappedSelectIndex(options.items, options.initialValue));
-		selectList.onSelect = (item) => done(item.value);
-		selectList.onCancel = () => done(null);
-		container.addChild(selectList);
-		container.addChild(new Text(theme.fg("dim", footer)));
-		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-
-		return {
-			render(width: number) {
-				return container.render(width);
-			},
-			invalidate() {
-				container.invalidate();
-			},
-			handleInput(data: string) {
-				const current = selectList.getSelectedItem();
-				const currentIndex = current
-					? options.items.findIndex((item) => item.value === current.value)
-					: 0;
-
-				if (matchesKey(data, Key.up) && options.items.length > 1 && currentIndex === 0) {
-					selectList.setSelectedIndex(options.items.length - 1);
-					tui.requestRender();
-					return;
-				}
-
-				if (
-					matchesKey(data, Key.down)
-					&& options.items.length > 1
-					&& currentIndex === options.items.length - 1
-				) {
-					selectList.setSelectedIndex(0);
-					tui.requestRender();
-					return;
-				}
-
-				selectList.handleInput(data);
-				tui.requestRender();
-			},
-		};
-	});
-
-	return selectedValue ?? undefined;
+	// Native select is reliable on every host, including oh-my-pi's TUI and
+	// RPC UI. The old custom SelectList swallowed input in some omp builds.
+	const rendered = options.items.map((item) =>
+		item.description ? `${item.label} — ${item.description}` : item.label,
+	);
+	const title = options.subtitle
+		? `${options.title}\n${options.subtitle}`
+		: options.title;
+	const picked = await ctx.ui.select(title, rendered);
+	if (!picked) return undefined;
+	const index = rendered.indexOf(picked);
+	return index >= 0 ? options.items[index]?.value : undefined;
 }
 
 async function runQuotaChecks(
@@ -5094,6 +5127,30 @@ async function handleSubsRemove(
 	return removeSubscriptionEntry(pi, ctx, config, entry, poolManager);
 }
 
+/** Open an OAuth URL in the platform browser; failures stay non-fatal. */
+function openLoginUrl(url: string): void {
+	if (!/^https?:\/\//i.test(url)) return;
+	const isTermux = Boolean(process.env.TERMUX_VERSION) || process.env.PREFIX?.includes("com.termux");
+	const command = isTermux
+		? "termux-open-url"
+		: process.platform === "darwin"
+			? "open"
+			: process.platform === "win32"
+				? "cmd"
+				: "xdg-open";
+	const args = process.platform === "win32" && !isTermux ? ["/c", "start", "", url] : [url];
+	try {
+		const child = spawn(command, args, { detached: true, stdio: "ignore" });
+		child.on("error", () => {});
+		child.unref();
+	} catch {
+		// No browser helper available; the URL is still shown in the notification.
+	}
+}
+
+/** The host extension API is needed to re-register a provider after login. */
+let activePi: ExtensionAPI | undefined;
+
 /**
  * Run a subscription's OAuth login directly from the /subs UI and persist the
  * credential. The host exposes no programmatic /login entry point, so build
@@ -5125,12 +5182,14 @@ async function loginSubscription(ctx: ExtensionCommandContext, entry: SubEntry):
 		onAuth: (info) => {
 			const suffix = info.instructions ? `\n${info.instructions}` : "";
 			ctx.ui.notify(`Authorize ${subDisplayName(entry)}: ${info.url}${suffix}`, "info");
+			openLoginUrl(info.url);
 		},
 		onDeviceCode: (info) => {
 			ctx.ui.notify(
 				`Open ${info.verificationUri} and enter code ${info.userCode}`,
 				"info",
 			);
+			openLoginUrl(info.verificationUri);
 		},
 		onPrompt: (prompt) => ask(prompt.message, prompt.placeholder),
 		onManualCodeInput: () => ask("Paste the authorization code"),
@@ -5150,11 +5209,15 @@ async function loginSubscription(ctx: ExtensionCommandContext, entry: SubEntry):
 		ctx.ui.setStatus("multi-pass-login", `Logging in ${subDisplayName(entry)}...`);
 		const credentials = await oauth.login(callbacks);
 		const name = subProviderName(entry);
+		await getAuthStorage(ctx).saveOAuth?.(name, { type: "oauth", ...credentials });
 		await withAuthFile((stored) => {
 			stored[name] = { type: "oauth", ...credentials };
 			return { value: undefined, changed: true };
 		});
 		providersRequiringReauthentication.delete(name);
+		// omp does not recompose extension providers on refresh(); re-register
+		// so the newly written credential is picked up without a restart.
+		if (activePi) await registerSub(activePi, entry);
 		ctx.modelRegistry.refresh();
 		ctx.ui.notify(`Logged in ${subDisplayName(entry)}.`, "info");
 		return true;
@@ -5314,6 +5377,11 @@ async function handleSubsStatus(ctx: ExtensionCommandContext): Promise<void> {
 		lines.push(
 			`${subDisplayName(entry)} | ${status} | ${modelCount} models | ${source}${poolInfo}`,
 		);
+	}
+
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify(lines.join("\n"), "info");
+		return;
 	}
 
 	await showWrappedSelect(ctx, {
@@ -7307,27 +7375,40 @@ async function handleSubsMenu(
 	ctx: ExtensionCommandContext,
 	poolManager: PoolManager,
 ): Promise<void> {
-	const actions: SelectItem[] = [
-		{ value: "list", label: "list", description: "Show all extra subscriptions" },
-		{ value: "add", label: "add", description: "Add a new subscription" },
-		{ value: "remove", label: "remove", description: "Remove a subscription" },
-		{ value: "login", label: "login", description: "Login to a subscription" },
-		{ value: "logout", label: "logout", description: "Logout from a subscription" },
-		{ value: "switch", label: "switch", description: "Switch to a different subscription/provider now" },
-		{ value: "model", label: "model", description: "Pick a model with pretty subscription labels (replaces /model)" },
-		{ value: "status", label: "status", description: "Show auth status and token info" },
-		{ value: "limits", label: "limits", description: "Check built-in quota support (Anthropic + Codex + Google)" },
-		{ value: "share", label: "share", description: "Export one OAuth account as offline QR frames (experimental)" },
-		{ value: "receive", label: "receive", description: "Import offline QR frames from another pi" },
-		{ value: "statusbar", label: "statusbar", description: "Toggle omarchy-style footer status bar" },
-		{ value: "intercept-model", label: "intercept-model", description: "Route omp's /model to /subs model (replaces editor)" },
-		{ value: "keeper", label: "keeper", description: "Toggle shared OAuth token keeper for parallel omp sessions" },
-	];
 	let preferredAction = "list";
 
 	while (true) {
+		const config = loadGlobalConfig();
+		const all = normalizeEntries(mergeConfigs(config, parseEnvConfig()));
+		const authStorage = getAuthStorage(ctx);
+		const loggedIn = all.filter((entry) => {
+			try {
+				return authStorage.hasAuth(subProviderName(entry));
+			} catch {
+				return false;
+			}
+		}).length;
+		const current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "no model";
+		const accountsLabel = all.length === 0
+			? "Accounts — none yet"
+			: `Accounts — ${all.length} configured, ${loggedIn} logged in`;
+
+		const actions: SelectItem[] = [
+			{ value: "list", label: accountsLabel, description: "Show, switch, or remove an account" },
+			{ value: "add", label: "Add account", description: "Pick a provider and log in" },
+			{ value: "login", label: "Login / re-authenticate", description: "Refresh an account's token" },
+			{ value: "switch", label: "Switch model", description: "Choose the active provider/model now" },
+			{ value: "status", label: "Status", description: `Current: ${current}` },
+			{ value: "limits", label: "Limits & quota", description: "Anthropic, Codex, Google headroom" },
+			{ value: "settings", label: "Settings", description: "Status bar, token keeper, /model intercept" },
+			{ value: "tools", label: "Share & import", description: "Move one OAuth account between machines" },
+			{ value: "logout", label: "Logout account", description: "Remove a saved credential" },
+			{ value: "remove", label: "Remove account", description: "Delete a subscription entry" },
+		];
+
 		const action = await showWrappedSelect(ctx, {
 			title: "Subscription Manager",
+			subtitle: `${all.length} account${all.length === 1 ? "" : "s"} · ${loggedIn} logged in · ${current}`,
 			items: actions,
 			initialValue: preferredAction,
 			confirmHint: "open",
@@ -7336,50 +7417,62 @@ async function handleSubsMenu(
 		if (!action) return;
 
 		preferredAction = action;
-		const config = loadGlobalConfig();
-		switch (action) {
-			case "list":
-				await handleSubsList(pi, ctx, config, poolManager);
-				break;
-			case "add":
-				await handleSubsAdd(pi, ctx);
-				break;
-			case "remove":
-				await handleSubsRemove(pi, ctx, poolManager);
-				break;
-			case "login":
-				await handleSubsLogin(ctx);
-				break;
-			case "logout":
-				await handleSubsLogout(ctx);
-				break;
-			case "switch":
-				await handleSubsSwitch(pi, ctx);
-				break;
-			case "model":
-				await handleSubsModel(pi, ctx);
-				break;
-			case "status":
-				await handleSubsStatus(ctx);
-				break;
-			case "limits":
-				await handleSubsLimits(ctx);
-				break;
-			case "share":
-				await handleSubsShare(ctx);
-				break;
-			case "receive":
-				await handleSubsReceive(ctx);
-				break;
-			case "statusbar":
-				await handleSubsStatusbar(ctx);
-				break;
-			case "intercept-model":
-				await handleSubsInterceptModel(ctx, pi);
-				break;
-			case "keeper":
-				await handleSubsKeeper(ctx);
-				break;
+		try {
+			switch (action) {
+				case "list":
+					await handleSubsList(pi, ctx, config, poolManager);
+					break;
+				case "add":
+					await handleSubsAdd(pi, ctx);
+					break;
+				case "login":
+					await handleSubsLogin(ctx);
+					break;
+				case "switch":
+					await handleSubsSwitch(pi, ctx);
+					break;
+				case "status":
+					await handleSubsStatus(ctx);
+					break;
+				case "limits":
+					await handleSubsLimits(ctx);
+					break;
+				case "settings": {
+					const setting = await showWrappedSelect(ctx, {
+						title: "Settings",
+						items: [
+							{ value: "statusbar", label: "Status bar", description: config.statusBar ? "enabled — turn off" : "disabled — turn on" },
+							{ value: "keeper", label: "Token keeper", description: config.tokenKeeper ? "enabled — turn off" : "disabled — turn on" },
+							{ value: "intercept-model", label: "/model intercept", description: config.interceptModel ? "enabled — turn off" : "disabled — turn on" },
+						],
+					});
+					if (setting === "statusbar") await handleSubsStatusbar(ctx);
+					else if (setting === "keeper") await handleSubsKeeper(ctx);
+					else if (setting === "intercept-model") await handleSubsInterceptModel(ctx, pi);
+					break;
+				}
+				case "tools": {
+					const tool = await showWrappedSelect(ctx, {
+						title: "Share & import",
+						items: [
+							{ value: "share", label: "Export account", description: "Offline QR frames or copy string" },
+							{ value: "receive", label: "Import account", description: "Paste a share string or QR frames" },
+						],
+					});
+					if (tool === "share") await handleSubsShare(ctx);
+					else if (tool === "receive") await handleSubsReceive(ctx);
+					break;
+				}
+				case "logout":
+					await handleSubsLogout(ctx);
+					break;
+				case "remove":
+					await handleSubsRemove(pi, ctx, poolManager);
+					break;
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Action failed: ${message}`, "error");
 		}
 	}
 }
@@ -8061,6 +8154,7 @@ async function handleSubsStatusbar(ctx: ExtensionCommandContext): Promise<void> 
 // ==========================================================================
 
 export default async function multiSub(pi: ExtensionAPI) {
+	activePi = pi;
 	startTokenKeeper();
 
 	const config = loadGlobalConfig();
@@ -8120,6 +8214,9 @@ export default async function multiSub(pi: ExtensionAPI) {
 
 	// On session start, reload pools with project-level config
 	pi.on("session_start", async (_event, ctx) => {
+		const hostStore = getHostCredentialStore(ctx.modelRegistry.authStorage);
+		if (hostStore) activeHostCredentials = hostStore;
+		await syncAuthFileToHost(hostStore);
 		const effective = loadEffectiveConfig(ctx.cwd);
 		poolManager.loadPools(effective.pools);
 

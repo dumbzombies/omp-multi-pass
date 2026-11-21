@@ -175,3 +175,25 @@
   Re-apply `KILO_HEADERS` because the merge replaces per-model headers.
 - `KILO_ORG_ID` / stored OAuth `accountId` becomes `X-Kilo-Organization-Id` in the
   merged model headers.
+
+## 2026-11-21 — omp 18.12.6 credential store and native menus
+
+- omp 18.12.6 stores credentials in `agent.db`; `auth.json` can be empty. The
+  host surface is `ctx.modelRegistry.authStorage.credentials`:
+  `get/has/set/upsert/upsertOAuth/remove/list`. It exposes no `hasAuth/get` on
+  `authStorage` itself. `getAuthStorage` must prefer this store, then fall back
+  to pi's `hasAuth/get` API, then `auth.json`.
+- `upsertOAuth(provider, credential)` persists OAuth logins; API keys need
+  `set`/`upsert`. On session start, mirror credentials from `auth.json` into
+  the host store (OAuth wins when its expiry is newer, API keys only when
+  missing). Without this, omp read an empty store and real model calls died with
+  `401 INVALID_TOKEN` even though the token worked via curl.
+- Token keeper rotations must also call the host store; `activeHostCredentials`
+  is set in `session_start`, and `keepFreshCredential` mirrors the merged
+  credential after writing `auth.json`.
+- Menus now use native `ctx.ui.select` with `label — description` strings. The
+  old custom SelectList swallowed input in some omp builds. `handleSubsStatus`
+  uses `ctx.ui.notify` outside TUI so RPC callers do not block on a select.
+- omp 18.12.6 removed `--offline` and `--no-context-files`; extension fixtures
+  must be passed with `--extension`, not positionally. Test fixtures capture
+  quiet notifications to include the last action error in assertion output.

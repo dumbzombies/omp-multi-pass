@@ -184,4 +184,26 @@ assert.equal(ccBase.models.length, 25);
 assert.equal(typeof ccBase.streamSimple, "function");
 assert.equal(ccBase.apiKey, "COMMANDCODE_API_KEY");
 
+// oh-my-pi keeps credentials in agent.db behind authStorage.credentials.
+// Status must read that store instead of pretending nothing is logged in.
+const hostCredentials = new Map([["kilo-1", { type: "api_key", key: "host-key" }]]);
+const hostStoreCtx = {
+	...ctx,
+	modelRegistry: {
+		...ctx.modelRegistry,
+		authStorage: {
+			credentials: {
+				get: (provider) => hostCredentials.get(provider),
+				has: (provider) => hostCredentials.has(provider),
+				set: async (provider, credential) => hostCredentials.set(provider, credential),
+				upsert: async (provider, credential) => hostCredentials.set(provider, credential),
+			},
+		},
+	},
+};
+notes.length = 0;
+await commands.get("subs").handler("status", hostStoreCtx);
+assert.match(JSON.stringify(notes), /logged in \(api key\)/, JSON.stringify(notes));
+assert.doesNotMatch(JSON.stringify(notes), /hasAuth is not a function/);
+
 console.log("omp compatibility checks passed");

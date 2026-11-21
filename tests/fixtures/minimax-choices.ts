@@ -9,6 +9,7 @@ import { mergeCatalog } from "../../lib/model-choices.ts";
 
 export default function (pi) {
 	const commands = new Map();
+	let notes: string[] = [];
 	let selected;
 	const overlays = {};
 	for (const provider of ["minimax", "minimax-cn"]) {
@@ -47,7 +48,8 @@ export default function (pi) {
 				&& typeof registry.complete === "function";
 			writeFileSync(join(getAgentDir(), "models-store.json"), JSON.stringify(overlays));
 			await registry.refresh({ allowNetwork: false, providers: ["minimax-2", "minimax-cn-2", "minimax-cn-3"] });
-			const quiet = { notify() {}, setStatus() {} };
+			notes = [];
+			const quiet = { notify(message: string) { notes.push(String(message)); }, setStatus() {} };
 			const context = (extra = {}) => ({ ...ctx, hasUI: false, model: undefined, ui: quiet, ...extra });
 			const run = (name, args, extra = {}) => commands.get(name).handler(args, context(extra));
 			const requests = [];
@@ -190,7 +192,8 @@ export default function (pi) {
 			}
 			ctx.ui.notify("MiniMax production choices and request checks passed", "info");
 		}).catch((error) => {
-			console.error(`MiniMax check failed: ${error.stack}`);
+			const detail = notes.length > 0 ? `\nLast notifications: ${notes.slice(-4).join(" | ")}` : "";
+			console.error(`MiniMax check failed: ${error.stack}${detail}`);
 			ctx.ui.notify(`MiniMax check failed: ${error.stack}`, "error");
 		}),
 	});
