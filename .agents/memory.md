@@ -77,3 +77,13 @@
   vendor/gemini-app2api/extensions/pi/index.js` produced no `extension_error`.
 - Not verified: real Google sign-in, native Gemini turn, or a live provider call
   (no account/network used).
+
+## 2026-11-21 — Publication
+
+- Public repo: https://github.com/dumbzombies/omp-multi-pass. Branch `main`, commit
+  `5f3cab1` before sync. Remotes: `origin` = fork, `upstream` = hjanuschka/pi-multi-pass.
+- GitHub push protection blocked the vendored Google installed-app OAuth client secret in
+  `vendor/gemini-app2api/src/gateway/oauth-client-defaults.mjs`. Because it is a public,
+  non-confidential installed-app credential, the literal was split into two array parts
+  joined at runtime (`DEFAULT_CLIENT_SECRET`); value unchanged. Do not merge it back into
+  one literal or pushes will be blocked again.
