@@ -30,7 +30,7 @@ try {
 	].map(([id, message]) => JSON.stringify({ id, type: "prompt", message })).join("\n");
 
 	const result = spawnSync(
-		"pi",
+		"omp",
 		[
 			"--mode", "rpc",
 			"--model", TEST_MODEL,

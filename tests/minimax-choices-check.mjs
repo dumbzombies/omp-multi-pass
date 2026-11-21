@@ -28,7 +28,7 @@ try {
 		chains: [{ name: "legacy", entries: [{ pool: "global", model: "MiniMax-M2.7", enabled: true }], enabled: true }],
 		presets: [{ name: "legacy", entries: [{ provider: "minimax-2", model: "MiniMax-M2.7", enabled: true }], enabled: true }],
 	}));
-	const child = spawn("pi", [
+	const child = spawn("omp", [
 		"--mode", "rpc", "--model", TEST_MODEL, "--offline", "--no-extensions", "--no-skills",
 		"--no-context-files", "--extension",
 		join(root, "tests", "fixtures", "minimax-choices.ts"),

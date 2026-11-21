@@ -17,7 +17,7 @@ try {
 	}));
 
 	const result = spawnSync(
-		"pi",
+		"omp",
 		[
 			"--mode",
 			"rpc",

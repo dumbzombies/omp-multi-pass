@@ -47,3 +47,33 @@
 - `tests/omp-compat-check.mjs` exercises the exact crash shapes: no `authStorage`, and a
   stale object with only `get`. It also loads both extensions and asserts the gemini-app
   base provider and subscription registration.
+
+## 2026-11-21 — omp ModelRegistry facade facts (verified 19.0.1)
+
+- Runtime `ctx.modelRegistry` exposes `getAll`, `getAvailable`, `find`,
+  `hasConfiguredAuth`, `registerProvider`, but NOT `getProviderAuthStatus`,
+  `getProvider`, `complete`, `getRegisteredProviderConfig`,
+  `getRegisteredNativeProvider`, or `authStorage`.
+- `readStoredCredential()` imported in an extension returned `undefined` for a
+  valid temp `auth.json` even though the file read directly. Auth checks and
+  `get` therefore read `auth.json` directly via the extension's own
+  `readAuthFile()`, with host status used only as a positive signal.
+- pi-ai 0.82.1 `createProvider()` returns `getModels`, `auth.oauth`,
+  `streamSimple`; there are no flat `models`/`oauth` fields.
+- `registry.refresh()` on omp does not recompose extension provider models.
+  Registration must merge `models-store.json` at startup (done in `registerSub`),
+  and catalog filtering must use the live `subscriptionCatalog` when
+  registration introspection is missing.
+- omp ignores `--no-prompt-templates`; RPC mode requires `--model`.
+- Spreading the extension API object (`{...pi}`) drops non-enumerable methods.
+  Fixtures wrap with `Object.create(pi)` instead.
+
+## 2026-11-21 — Verification
+
+- Full suite: all 19 `tests/*-check.mjs` pass.
+- `tests/omp-compat-check.mjs` loads both extensions, reproduces the missing and
+  stale `authStorage` shapes, and asserts gemini-app base/subscription models.
+- Live omp RPC load with `--extension extensions/multi-sub.ts --extension
+  vendor/gemini-app2api/extensions/pi/index.js` produced no `extension_error`.
+- Not verified: real Google sign-in, native Gemini turn, or a live provider call
+  (no account/network used).

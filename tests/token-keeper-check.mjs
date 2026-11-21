@@ -70,7 +70,7 @@ try {
 	writeFileSync(authPath, JSON.stringify(credential));
 
 	const result = spawnSync(
-		"pi",
+		"omp",
 		[
 			"--mode", "rpc",
 			"--model", TEST_MODEL,
